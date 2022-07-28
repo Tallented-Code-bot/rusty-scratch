@@ -1,0 +1,136 @@
+#+TITLE: scratch2rust
+#+AUTHOR: Tallented-Code-bot
+
+#+begin_src scratch
+Green flag clicked
+repeat(10){
+   move (10) steps
+}
+set x to (-72)
+change y by (10)
+say (hello)
+#+end_src
+
+
+* Scratch2rust
+Scratch2rust compiles [[https://scratch.mit.edu][scratch]] projects to rust.
+
+** Blocks
+- [ ] Move (10) steps
+- [ ] turn right (15) degrees
+- [ ] Turn left (15) degrees
+- [ ] Go to [random position]
+- [X] go to x()y()
+- [ ] glide (1) secs to [random position]
+- [ ] glide 1 secs to x:(0) y: (0)
+- [ ] point in direction (90)
+- [ ] point towards [mouse pointer]
+- [X] change x by (10)
+- [X] set x to (0)
+- [X] change y by (10)
+- [X] set y to (0)
+- [ ] if on edge, bounce
+- [X] set rotation style [left-right]
+- [X] (x position)
+- [X] (y position)
+- [X] (direction)
+- [ ] say (hello) for (2) seconds
+- [X] say (hello)
+- [ ] think (hmmn) for (2) seconds
+- [ ] think (hmm)
+- [ ] switch costume to (v costume2)
+- [ ] next costume
+- [ ] switch backdrop to (v backdrop1)
+- [ ] next backdrop
+- [ ] change size by (10)
+- [ ] set size to (100)%
+- [ ] change [v color] effect by (25)
+- [ ] set [v color] effect to 0
+- [ ] clear graphic effects
+- [ ] show
+- [ ] hide
+- [ ] go to [front] layer
+- [ ] go [forward] (1) layers
+- [ ] (costume [number])
+- [ ] (backdrop [number])
+- [ ] (size)
+- [ ] play sound (v meow) until done
+- [ ] start sound (v meow)
+- [ ] stop all sounds
+- [ ] change [pitch v] effect by (10)
+- [ ] set [pitch v] effect to (100)
+- [ ] clear sound effects
+- [ ] change volume by (-10)
+- [ ] set volume to (100)%
+- [ ] (volume)
+- [ ] when gf clicked
+- [ ] When [space] key pressed
+- [ ] when this sprite clicked
+- [ ] when backdrop switches to [backdrop1]
+- [ ] When [loudness] > (10)
+- [ ] when I recieve [message1]
+- [ ] broadcast (message1 v)
+- [ ] broadcast (message1 v) and wait
+- [ ] wait (1) second
+- [ ] repeat (10) {}
+- [ ] forever {}
+- [ ] if <> then{}
+- [ ] if <> then{}else{}
+- [ ] wait until <>
+- [ ] repeat until <>{}
+- [ ] stop [all v]
+- [ ] when I start as a clone
+- [ ] create clone of (myself v)
+- [ ] delete this clone
+- [ ] <touching (mouse-pointer v)>
+- [ ] <touching color (orange)>
+- [ ] <color (blue) is touching (orange)?>
+- [ ] (distance to (mouse pointer v))
+- [ ] ask (what's your name) and wait
+- [ ] (answer)
+- [ ] <key (space v) pressed?>
+- [ ] <mouse down?>
+- [ ] (mouse x)
+- [ ] (mouse y)
+- [ ] set drag mode [draggable v]
+- [ ] (loudness)
+- [ ] (timer)
+- [ ] reset timer
+- [ ] ([backdrop #] of (stage v))
+- [ ] (current [year v])
+- [ ] (days since 2000)
+- [ ] (username)
+- [ ] (()+())
+- [ ] (()-())
+- [ ] (()*())
+- [ ] (()/())
+- [ ] (pick random (1) to (10))
+- [ ] <()>()>
+- [ ] <()<()>
+- [ ] <()=()>
+- [ ] <<>and<>>
+- [ ] <<>or<>>
+- [ ] <not <>>
+- [ ] (join (apple)(bannana))
+- [ ] (letter (1) of (apple))
+- [ ] (length of (apple))
+- [ ] <(apple) contains (a)?>
+- [ ] (() mod ())
+- [ ] (round ())
+- [ ] ([abs v] of ())
+- [ ] set [my variable] to (0)
+- [ ] change [my variable] by (1)
+- [ ] show variable [my variable]
+- [ ] hide variable [my variable]
+- [ ] add (thing) to [test v]
+- [ ] delete (1) of [test]
+- [ ] insert (thing) at (1) of [test]
+- [ ] replace item (1) of [test] with (thing)
+- [ ] (item (1) of [test])
+- [ ] (item # of (thing) in [test])
+- [ ] (length of [test])
+- [ ] <[test] contains (thing)?>
+- [ ] show list [test]
+- [ ] hide list [test]
+* Resources
+[[https://scratch.mit.edu/discuss/topic/348714/?page=1]]

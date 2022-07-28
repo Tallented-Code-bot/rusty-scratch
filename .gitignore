@@ -1,0 +1,4 @@
+target/
+*.sb3*
+project.json
+output*
