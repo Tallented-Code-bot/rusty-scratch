@@ -16,14 +16,14 @@ say (hello)
 Scratch2rust compiles [[https://scratch.mit.edu][scratch]] projects to rust.
 
 ** Blocks
-- [ ] Move (10) steps
-- [ ] turn right (15) degrees
-- [ ] Turn left (15) degrees
+- [X] Move (10) steps
+- [X] turn right (15) degrees
+- [X] Turn left (15) degrees
 - [ ] Go to [random position]
 - [X] go to x()y()
 - [ ] glide (1) secs to [random position]
 - [ ] glide 1 secs to x:(0) y: (0)
-- [ ] point in direction (90)
+- [X] point in direction (90)
 - [ ] point towards [mouse pointer]
 - [X] change x by (10)
 - [X] set x to (0)
@@ -72,10 +72,10 @@ Scratch2rust compiles [[https://scratch.mit.edu][scratch]] projects to rust.
 - [ ] broadcast (message1 v)
 - [ ] broadcast (message1 v) and wait
 - [ ] wait (1) second
-- [ ] repeat (10) {}
-- [ ] forever {}
-- [ ] if <> then{}
-- [ ] if <> then{}else{}
+- [X] repeat (10) {}
+- [X] forever {}
+- [X] if <> then{}
+- [X] if <> then{}else{}
 - [ ] wait until <>
 - [ ] repeat until <>{}
 - [ ] stop [all v]
