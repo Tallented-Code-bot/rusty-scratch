@@ -1,21 +1,32 @@
 #+TITLE: scratch2rust
 #+AUTHOR: Tallented-Code-bot
 
-#+begin_src scratch
-Green flag clicked
-repeat(10){
-   move (10) steps
-}
-set x to (-72)
-change y by (10)
-say (hello)
-#+end_src
+* Rusty-Scratch
+Rusty-Scratch is a compiler that turns [[https://scratch.mit.edu][scratch]] projects into rust
+so that they will run faster.  It is similar to [[https://turbowarp.org/][turbowarp]].
 
+** Installation
+1. Make sure rust is installed on your machine. ([[https://www.rust-lang.org/tools/install][install rust]])
+2. Clone the repo.
+   #+begin_src sh
+    git clone https://github.com/Tallented-Code-bot/rusty-scratch.git
+   #+end_src
+3. Build.
+   #+begin_src sh
+    cd rusty-scratch
+    cargo build
+   #+end_src
 
-* Scratch2rust
-Scratch2rust compiles [[https://scratch.mit.edu][scratch]] projects to rust.
+* Resources
+[[https://scratch.mit.edu/discuss/topic/348714/?page=1]]
+[[https://github.com/rust-native-ui/libui-rs]]
+
 
 ** Blocks
+Here are all the currently implemented blocks.
+
+Note that there are currently no graphics.
+
 - [X] Move (10) steps
 - [X] turn right (15) degrees
 - [X] Turn left (15) degrees
@@ -132,5 +143,3 @@ Scratch2rust compiles [[https://scratch.mit.edu][scratch]] projects to rust.
 - [ ] <[test] contains (thing)?>
 - [ ] show list [test]
 - [ ] hide list [test]
-* Resources
-[[https://scratch.mit.edu/discuss/topic/348714/?page=1]]
