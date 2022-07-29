@@ -44,13 +44,23 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
     blocks.insert("control_repeat_until", "while !CONDITION{SUBSTACK}"); //TODO add yielding
     blocks.insert("looks_say", "object.say(String::from(\"MESSAGE\"));");
     blocks.insert("event_whenflagclicked", "");
+    blocks.insert("data_variable", "object.get_variable(VARIABLE)");
+    blocks.insert(
+        "data_setvariableto",
+        "object.set_variable(String::from(\"VARIABLE\"),&mut Value::from(VALUEf32));",
+    );
+    blocks.insert(
+        "data_changevariableby",
+        "object.change_variable(String::from(\"VARIABLE\"),VALUEf32);",
+    );
+    blocks.insert("operator_divide", "NUM1/NUM2");
 
     return blocks;
 }
 
 fn main() {
     // let file = fs::read_to_string("./project.json").expect("Could not read file");
-    let project = get_project(String::from("./test.sb3")).unwrap(); // TODO add proper error handling
+    let project = get_project(String::from("./test_variables.sb3")).unwrap(); // TODO add proper error handling
     let block_reference = make_blocks_lookup();
 
     let filename = "output.rs";
@@ -130,12 +140,38 @@ fn get_block(
 ) -> String {
     let (id, data) = block;
     let opcode = data["opcode"].to_string();
+    println!("{}", block.1);
     let mut function = block_reference.get(&opcode as &str).unwrap().to_string(); // TODO better error handling
 
     // iterate over each input
     for input in data["inputs"].entries() {
         if input.1[1].is_array() {
             // If the input is an array, it must be a single value.
+            println!("{}", input.1[1]);
+
+            function = match input.1[1][0].as_u32().unwrap() {
+                4 => function.replacen(input.0, &input.1[1][1].as_str().unwrap().to_string(), 1), // Number
+                5 => function.replacen(input.0, &input.1[1][1].as_str().unwrap().to_string(), 1), // Positive number
+                6 => function.replacen(input.0, &input.1[1][1].as_str().unwrap().to_string(), 1), // Positive integer
+                7 => function.replacen(input.0, &input.1[1][1].as_str().unwrap().to_string(), 1), // Integer
+                8 => function.replacen(input.0, &input.1[1][1].as_str().unwrap().to_string(), 1), // Angle
+                9 => function.replacen(input.0, input.1[1][1].as_str().unwrap(), 1), // Color
+                10 => function.replacen(input.0, input.1[1][1].as_str().unwrap(), 1), // String
+                11 => todo!(),
+                12 => function.replacen(
+                    input.0,
+                    format!(
+                        "object.get_variable({})",
+                        input.1[1][2].as_str().unwrap(),
+                        1
+                    ),
+                    1,
+                ),
+                13 => todo!(),
+                _ => {
+                    unreachable!()
+                }
+            };
             function = function.replacen(input.0, input.1[1][1].as_str().unwrap(), 1);
         } else if input.1[1].is_string() {
             // otherwise, it must be a substack.
@@ -154,6 +190,11 @@ fn get_block(
             function = function.replacen(input.0, &subfunc, 1);
         }
     }
+
+    for field in data["fields"].entries() {
+        function = function.replacen(field.0, field.1[1].as_str().unwrap(), 1);
+    }
+
     // Return the completed function
     return function;
 }
@@ -244,6 +285,7 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
                 videoState:{videoState},
                 videoTransparency:{videoTransparency},
                 textToSpeechLanguage:String::from(\"{textToSpeechLanguage}\"),
+                variables:HashMap::new(),
             }};",
             name = target["name"],
             tempo = target["tempo"],
@@ -256,8 +298,8 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
     } else {
         let function = create_hat(
             (
-                "l;hbH%/NGXC+[%R,/D9_",
-                &target["blocks"]["l;hbH%/NGXC+[%R,/D9_"],
+                ";R9G|C|f#(g@5F[3Im)I",
+                &target["blocks"][";R9G|C|f#(g@5F[3Im)I"],
             ),
             &target["blocks"],
             &block_reference,
@@ -274,7 +316,9 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
                 draggable:{draggable},
                 rotation_style:{rotationStyle},
                 name:\"{name}\".to_string(),
-                blocks:Thread{{ function:{function} }}
+                blocks:Thread{{ function:{function} }},
+                stage:Stage,
+                variables:HashMap::new(),
             }};",
             name = target["name"],
             visible = target["visible"],

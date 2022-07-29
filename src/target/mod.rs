@@ -1,4 +1,4 @@
-use std::f32::consts::PI;
+use std::{collections::HashMap, f32::consts::PI};
 
 pub enum RotationStyle {
     AllAround,
@@ -48,6 +48,32 @@ impl VideoState {
     }
 }
 
+/// A value, for a variable, list, or something else.
+///
+/// This can represent either a number or a string.
+enum Value {
+    Num(f32),
+    String(String),
+}
+
+impl Default for Value {
+    fn default() -> Self {
+        return Self::Num(0.0);
+    }
+}
+
+impl From<f32> for Value {
+    fn from(item: f32) -> Self {
+        Value::Num(item)
+    }
+}
+
+impl From<String> for Value {
+    fn from(item: String) -> Self {
+        Value::String(item)
+    }
+}
+
 /// The target trait.
 ///
 /// A target is anything that can run scratch code, meaning
@@ -86,6 +112,11 @@ trait Target {
     fn turn_right(&mut self, degrees: f32) {
         self.point_direction(self.direction() + degrees);
     }
+    fn get_variable(&self, id: String) -> Option<&Value>;
+    fn set_variable(&mut self, id: String, value: &mut Value);
+    fn change_variable(&mut self, id: String, amount: f32) {
+        // self.set_variable(id, self.get_variable(id).unwrap() + amount);
+    }
 }
 
 /// The stage.
@@ -102,6 +133,7 @@ struct Stage {
     videoTransparency: i32,
     /// The text to speech language.  Defaults to the editor language.
     textToSpeechLanguage: String,
+    variables: HashMap<String, Value>,
 }
 
 impl Target for Stage {
@@ -131,6 +163,16 @@ impl Target for Stage {
     /// Does nothing; the stage cannot "say" anything.
     fn say(&self, text: String) {}
     fn set_rotation_style(&mut self, style: RotationStyle) {}
+    // fn set_variable(&mut self, id: String, value: &mut Value);
+    fn get_variable(&self, id: String) -> Option<&Value> {
+        return self.variables.get(&id);
+    }
+    fn set_variable(&mut self, id: String, value: &mut Value) {
+        if self.variables.contains_key(&id) {
+            let mut variable = self.variables.entry(id).or_default();
+            variable = value;
+        }
+    }
 }
 
 impl Target for Sprite {
@@ -168,6 +210,29 @@ impl Target for Sprite {
     fn set_rotation_style(&mut self, style: RotationStyle) {
         self.rotation_style = style;
     }
+    /// Get a variable
+    fn get_variable(&self, id: String) -> Option<&Value> {
+        let variable = self.variables.get(&id);
+
+        match variable {
+            Some(variable) => return Some(variable),
+            None => {}
+        }
+
+        let variable = self.stage.get_variable(id);
+
+        match variable {
+            Some(variable) => return Some(variable),
+            None => return None,
+        }
+    }
+    /// Set a variable
+    fn set_variable(&mut self, id: String, value: &mut Value) {
+        if self.variables.contains_key(&id) {
+            let mut variable = self.variables.entry(id).or_default();
+            variable = value;
+        }
+    }
 }
 
 struct Sprite {
@@ -187,8 +252,17 @@ struct Sprite {
     rotation_style: RotationStyle,
     /// The name of the sprite.
     name: String,
+    /// The blocks in the sprite.
+    /// This is currently only 1 stack of blocks,
+    /// but this should change soon.
     blocks: Thread,
+    /// A list of variables for the sprite
+    variables: HashMap<String, Value>,
+
+    stage: Stage,
 }
+
+impl Sprite {}
 
 // /// A stack of blocks
 // struct Stack {
