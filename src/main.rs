@@ -7,6 +7,8 @@ use std::fs;
 use std::io::ErrorKind;
 use std::io::Read;
 use zip;
+use std::fs::File;
+use reqwest;
 
 mod target;
 pub mod thread;
@@ -158,13 +160,12 @@ fn get_block(
                 9 => function.replacen(input.0, input.1[1][1].as_str().unwrap(), 1), // Color
                 10 => function.replacen(input.0, input.1[1][1].as_str().unwrap(), 1), // String
                 11 => todo!(),
-                12 => function.replacen(
+                12 => function.replacen( // Variable
                     input.0,
                     format!(
                         "object.get_variable({})",
-                        input.1[1][2].as_str().unwrap(),
-                        1
-                    ),
+                        input.1[1][2].as_str().unwrap()
+                    ).as_str(),
                     1,
                 ),
                 13 => todo!(),
@@ -337,3 +338,16 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
 // struct blockstack
 //
 // type of hat
+
+
+
+/// Fetch a scratch sb3 file.
+fn fetch_sb3_file(url:String)->Result<String,String>{
+    // fetch the file,
+    let mut response=reqwest::blocking::get(url)?;
+    // create a new file,
+    let out=File::create("project.svg")?;
+    // and copy the contents of the response to the new file.
+    io::copy(&mut response,&mut out)?;
+    return Ok(String::from(""));
+}
