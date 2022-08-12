@@ -62,7 +62,8 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
 
 fn main() {
     // let file = fs::read_to_string("./project.json").expect("Could not read file");
-    let project = get_project(String::from("./test_variables.sb3")).unwrap(); // TODO add proper error handling
+    // let project = get_project(String::from("./test_variables.sb3")).unwrap(); // TODO add proper error handling
+    let project = get_project_online(720925925).unwrap(); // TODO add proper error handling
     let block_reference = make_blocks_lookup();
 
     let filename = "output.rs";
@@ -129,6 +130,19 @@ fn get_project(filename: String) -> Result<JsonValue, Box<dyn Error>> {
     file.read_to_string(&mut contents)?;
 
     let project = json::parse(&contents as &str)?;
+    return Ok(project);
+}
+
+
+/// Get an online scratch project.
+fn get_project_online(id:u32)->Result<JsonValue,Box<dyn Error>>{
+    // Create the project url.
+    let url=format!("https://projects.scratch.mit.edu/{}",id);
+
+    // Get the project (`fetch_sb3_file` creates a file called "project.json".
+    // I have not yet figured out how to get the project assets.)
+    let project=json::parse(fetch_sb3_file(url).as_str())?;
+
     return Ok(project);
 }
 
@@ -342,12 +356,13 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
 
 
 /// Fetch a scratch sb3 file.
-fn fetch_sb3_file(url:String)->Result<String,String>{
+fn fetch_sb3_file(url:String)->String{
     // fetch the file,
-    let mut response=reqwest::blocking::get(url)?;
+    let mut response=reqwest::blocking::get(url).expect("Could not get file.");
     // create a new file,
-    let out=File::create("project.svg")?;
+    //let mut out=File::create("project.sv3").expect("Could not create file");
     // and copy the contents of the response to the new file.
-    io::copy(&mut response,&mut out)?;
-    return Ok(String::from(""));
+    //response.copy_to(&mut out);
+    // io::copy(&mut response,&mut out)?;
+    return response.text().unwrap();
 }
