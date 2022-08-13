@@ -68,7 +68,6 @@ fn main() {
     //510186917
     let filename = "output.rs";
 
-    println!("{:#}",project);
 
     // Get the library file to include
     let lib = include_str!("../target/target.rs");
@@ -276,17 +275,18 @@ fn create_hat(
     return Ok(String::from(function));
 }
 
-/// Returns first block stack.
-/// 
-/// TODO: will return all stacks of blocks
+/// Returns all stacks of blocks.
 fn create_all_hats(
     blocks: &JsonValue,
     block_reference: &HashMap<&str, &str>,
 )->Result<String,String>{
+    let mut contents:String=String::new();
+
     for block in blocks.entries(){
-       return create_hat(block, blocks, block_reference);
+       contents.push_str(format!("Thread{{function:{}}},",create_hat(block, blocks, block_reference).unwrap()).as_str());
     } 
-    return Err(String::from("Bad"));
+    //return Err(String::from("Bad"));
+    return Ok(format!("{}",contents));
 }
 
 /// Writes the output rust file.
@@ -347,7 +347,7 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
                 draggable:{draggable},
                 rotation_style:{rotationStyle},
                 name:\"{name}\".to_string(),
-                blocks:Thread{{ function:{function} }},
+                blocks:vec![ {function} ],
                 stage:Stage,
                 variables:HashMap::new(),
             }};",
