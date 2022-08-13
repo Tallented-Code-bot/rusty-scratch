@@ -63,10 +63,12 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
 fn main() {
     // let file = fs::read_to_string("./project.json").expect("Could not read file");
     // let project = get_project(String::from("./test_variables.sb3")).unwrap(); // TODO add proper error handling
-    let project = get_project_online(720925925).unwrap(); // TODO add proper error handling
+    let project = get_project_online(510186917).unwrap(); // TODO add proper error handling
     let block_reference = make_blocks_lookup();
-
+    //510186917
     let filename = "output.rs";
+
+    println!("{:#}",project);
 
     // Get the library file to include
     let lib = include_str!("../target/target.rs");
@@ -274,6 +276,19 @@ fn create_hat(
     return Ok(String::from(function));
 }
 
+/// Returns first block stack.
+/// 
+/// TODO: will return all stacks of blocks
+fn create_all_hats(
+    blocks: &JsonValue,
+    block_reference: &HashMap<&str, &str>,
+)->Result<String,String>{
+    for block in blocks.entries(){
+       return create_hat(block, blocks, block_reference);
+    } 
+    return Err(String::from("Bad"));
+}
+
 /// Writes the output rust file.
 fn write_to_file(
     block: (&str, &JsonValue),
@@ -311,7 +326,7 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
             videoTransparency = target["videoTransparency"]
         );
     } else {
-        let function = create_hat(
+        /* let function = create_hat(
             (
                 ";R9G|C|f#(g@5F[3Im)I",
                 &target["blocks"][";R9G|C|f#(g@5F[3Im)I"],
@@ -319,7 +334,8 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
             &target["blocks"],
             &block_reference,
         )
-        .unwrap();
+        .unwrap(); */
+        let function=create_all_hats(&target["blocks"], &block_reference).unwrap();
 
         return format!(
             "let mut {name}=Sprite{{
