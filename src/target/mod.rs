@@ -255,7 +255,7 @@ struct Sprite {
     /// The blocks in the sprite.
     /// This is currently only 1 stack of blocks,
     /// but this should change soon.
-    blocks: Thread,
+    blocks:Vec<Thread>,
     /// A list of variables for the sprite
     variables: HashMap<String, Value>,
 

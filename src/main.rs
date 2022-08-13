@@ -2,7 +2,7 @@ use crate::target::{RotationStyle, VideoState};
 use json::{self, JsonValue};
 use std::collections::HashMap;
 use std::error::Error;
-use std::fmt;
+use std::process::{Command,Output};
 use std::fs;
 use std::io::ErrorKind;
 use std::io::Read;
@@ -96,6 +96,7 @@ fn main() {
     );
 
     fs::write(filename, output).expect("Could not write file.");
+    format_file(filename.to_string()).expect("Could not format file.");
 
     // ###############################################
 
@@ -381,4 +382,12 @@ fn fetch_sb3_file(url:String)->String{
     //response.copy_to(&mut out);
     // io::copy(&mut response,&mut out)?;
     return response.text().unwrap();
+}
+
+/// Formats the given filename with rustfmt.
+fn format_file(filename: String)->Result<Output,std::io::Error>{
+    return Command::new("rustfmt")
+        .arg(filename)
+        .output();
+        //.expect("Could not execute rustfmt"); 
 }
