@@ -111,17 +111,17 @@ Note that there are currently no graphics.
 - [ ] (current [year v])
 - [ ] (days since 2000)
 - [ ] (username)
-- [ ] (()+())
-- [ ] (()-())
-- [ ] (()*())
-- [ ] (()/())
+- [-] (()+())
+- [-] (()-())
+- [-] (()*())
+- [-] (()/())
 - [ ] (pick random (1) to (10))
-- [ ] <()>()>
-- [ ] <()<()>
-- [ ] <()=()>
-- [ ] <<>and<>>
-- [ ] <<>or<>>
-- [ ] <not <>>
+- [-] <()>()>
+- [-] <()<()>
+- [-] <()=()>
+- [-] <<>and<>>
+- [-] <<>or<>>
+- [-] <not <>>
 - [ ] (join (apple)(bannana))
 - [ ] (letter (1) of (apple))
 - [ ] (length of (apple))
