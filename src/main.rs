@@ -55,7 +55,17 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
         "data_changevariableby",
         "object.change_variable(String::from(\"VARIABLE\"),VALUEf32);",
     );
+    blocks.insert("operator_add","NUM1+NUM2");
+    blocks.insert("operator_subtract","NUM1-NUM2");
+    blocks.insert("operator_multiply","NUM1*NUM2");
     blocks.insert("operator_divide", "NUM1/NUM2");
+    blocks.insert("operator_random","generate_random(FROM,TO)");
+    blocks.insert("operator_lt","OPERAND1<OPERAND2");
+    blocks.insert("operator)_equals","OPERAND1=OPERAND2");
+    blocks.insert("operator_gt","OPERAND1>OPERAND2");
+    blocks.insert("operator_and","OPERAND1&&OPERAND2");
+    blocks.insert("operator_or","OPERAND1||OPERAND2");
+    blocks.insert("operator_not","!OPERAND");
 
     return blocks;
 }

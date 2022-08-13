@@ -1,4 +1,5 @@
 use std::{collections::HashMap, f32::consts::PI};
+use rand::Rng;
 
 pub enum RotationStyle {
     AllAround,
@@ -116,6 +117,10 @@ trait Target {
     fn set_variable(&mut self, id: String, value: &mut Value);
     fn change_variable(&mut self, id: String, amount: f32) {
         // self.set_variable(id, self.get_variable(id).unwrap() + amount);
+    }
+    fn generate_random(from:i32,to:i32)->u32{
+        let mut rng=rand::thread_rng();
+        return rng.gen_range(from..to);
     }
 }
 
