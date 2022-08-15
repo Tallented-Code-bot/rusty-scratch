@@ -1,8 +1,8 @@
-#+TITLE: scratch2rust
+#+TITLE: Rusty-Scratch
 #+AUTHOR: Tallented-Code-bot
-
+ 
 * Rusty-Scratch
-Rusty-Scratch is a compiler that turns [[https://scratch.mit.edu][scratch]] projects into rust
+Rusty-Scratch is a transpiler that turns [[https://scratch.mit.edu][scratch]] projects into rust
 so that they will run faster.  It is similar to [[https://turbowarp.org/][turbowarp]].
 
 ** Installation
