@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::process::{Command,Output};
 use std::fs;
-use std::io::ErrorKind;
 use std::io::Read;
+use std::io;
 use zip;
 use std::fs::File;
 use reqwest;
@@ -75,8 +75,9 @@ fn main() {
     // let project = get_project(String::from("./test_variables.sb3")).unwrap(); // TODO add proper error handling
     let project = get_project_online(510186917).unwrap(); // TODO add proper error handling
     let block_reference = make_blocks_lookup();
+    create_project(); // create a new cargo project
     //510186917
-    let filename = "output.rs";
+    let filename = "output/src/main.rs";
 
 
     // Get the library file to include
@@ -97,7 +98,10 @@ fn main() {
 
         fn main(){{
             {targets}
-            (Sprite1.blocks.function)(&mut Sprite1);
+            // (Sprite1.blocks.function)(&mut Sprite1);
+            
+            let mut program=Program::new();
+            program.add_threads(&mut Sprite1);
         }}
         ",
         lib = lib,
@@ -395,9 +399,31 @@ fn fetch_sb3_file(url:String)->String{
 }
 
 /// Formats the given filename with rustfmt.
-fn format_file(filename: String)->Result<Output,std::io::Error>{
+fn format_file(filename: String)->io::Result<Output>{
     return Command::new("rustfmt")
         .arg(filename)
         .output();
         //.expect("Could not execute rustfmt"); 
+}
+
+fn create_project()->Result<(),io::Error>{
+    Command::new("cargo")
+        .arg("new")
+        .arg("output")
+        .output()?;
+    
+    let toml="
+    [package]
+    name=\"output\"
+    version=\"1.0.0\"
+    edition=\"2021\"
+    
+    [dependencies]
+    rand=\"0.8.5\"
+    genawaiter=\"0.99.1\"
+    ";
+
+    fs::write("output/Cargo.toml",toml)?;
+
+    return Ok(());
 }

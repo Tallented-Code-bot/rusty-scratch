@@ -1,5 +1,7 @@
+extern crate rand;
 use std::{collections::HashMap, f32::consts::PI};
 use rand::Rng;
+use genawaiter::stack;
 
 pub enum RotationStyle {
     AllAround,
@@ -118,7 +120,7 @@ trait Target {
     fn change_variable(&mut self, id: String, amount: f32) {
         // self.set_variable(id, self.get_variable(id).unwrap() + amount);
     }
-    fn generate_random(from:i32,to:i32)->u32{
+    fn generate_random(&self,from:i32,to:i32)->i32{
         let mut rng=rand::thread_rng();
         return rng.gen_range(from..to);
     }
@@ -282,4 +284,32 @@ impl Sprite {}
 /// A thread object.
 struct Thread {
     function: fn(object: &mut dyn Target),
+    object:Box<dyn Target>,
+}
+
+/// The main project class.  This is in charge of running threads and
+/// redrawing the screen.
+struct Program{
+    threads:Vec<Thread>
+}
+
+impl Program{
+    /// Run 1 tick
+    fn tick(&mut self){
+        for thread in &mut self.threads{
+            (thread.function)(&mut *thread.object);
+        }
+    }
+    fn new()->Self{
+        return Program{
+            threads:Vec::new()
+        }
+    }
+
+    /// Add threads from a sprite to the program.
+    /// This _moves_ the threads out of the sprite.
+    fn add_threads(&mut self,sprite:&mut Sprite){
+        self.threads.append(&mut sprite.blocks);
+    }
+
 }
