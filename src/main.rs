@@ -73,7 +73,8 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
 fn main() {
     // let file = fs::read_to_string("./project.json").expect("Could not read file");
     // let project = get_project(String::from("./test_variables.sb3")).unwrap(); // TODO add proper error handling
-    let project = get_project_online(510186917).unwrap(); // TODO add proper error handling
+    let project = get_project_online(720925925).unwrap(); // TODO add proper error handling
+    std::fs::write("project.json",project.to_string());
     let block_reference = make_blocks_lookup();
     create_project(); // create a new cargo project
     //510186917
