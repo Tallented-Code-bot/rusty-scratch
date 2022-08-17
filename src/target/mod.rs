@@ -3,6 +3,7 @@ use std::{collections::HashMap, f32::consts::PI};
 use rand::Rng;
 use genawaiter::stack;
 
+#[derive(Clone)]
 pub enum RotationStyle {
     AllAround,
     LeftRight,
@@ -27,6 +28,7 @@ impl RotationStyle {
     }
 }
 
+#[derive(Clone)]
 pub enum VideoState {
     On,
     Off,
@@ -54,6 +56,7 @@ impl VideoState {
 /// A value, for a variable, list, or something else.
 ///
 /// This can represent either a number or a string.
+#[derive(Clone)]
 enum Value {
     Num(f32),
     String(String),
@@ -130,6 +133,7 @@ trait Target {
 ///
 /// Since the stage cannot run some blocks, some
 /// of these definitions are empty.
+#[derive(Clone)]
 struct Stage {
     /// The tempo, in BPM.
     tempo: i32,
@@ -242,6 +246,7 @@ impl Target for Sprite {
     }
 }
 
+#[derive(Clone)]
 struct Sprite {
     /// Whether the sprite is visibile.  Defaults to true.
     visible: bool,
@@ -269,7 +274,9 @@ struct Sprite {
     stage: Stage,
 }
 
+
 impl Sprite {}
+
 
 // /// A stack of blocks
 // struct Stack {
@@ -282,6 +289,7 @@ impl Sprite {}
 // }
 
 /// A thread object.
+#[derive(Clone)]
 struct Thread {
     function: fn(object: &mut dyn Target),
     object:Box<dyn Target>,
@@ -289,27 +297,39 @@ struct Thread {
 
 /// The main project class.  This is in charge of running threads and
 /// redrawing the screen.
-struct Program{
-    threads:Vec<Thread>
+struct Program<'a>{
+    threads:Vec<(Thread,&'a Sprite)>,
+    //targets:Vec<Box<dyn Target>>
+    targets:Vec<Sprite>
 }
 
-impl Program{
+impl Program<'_>{
     /// Run 1 tick
     fn tick(&mut self){
         for thread in &mut self.threads{
-            (thread.function)(&mut *thread.object);
+            (thread.0.function)(thread.1);
         }
     }
     fn new()->Self{
         return Program{
-            threads:Vec::new()
+            threads:Vec::new(),
+            targets:Vec::new()
         }
     }
 
     /// Add threads from a sprite to the program.
     /// This _moves_ the threads out of the sprite.
-    fn add_threads(&mut self,sprite:&mut Sprite){
-        self.threads.append(&mut sprite.blocks);
+    fn add_threads(&mut self){
+        //for thread in sprite.blocks{
+        //    self.threads.push((thread,&sprite))
+        //}
+        for target in self.targets{
+            for thread in target.blocks{
+                self.threads.push((thread,&target));
+            }
+        }
+
+        //self.threads.append(&mut sprite.blocks);
     }
 
 }
