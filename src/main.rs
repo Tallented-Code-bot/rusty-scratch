@@ -298,7 +298,11 @@ fn create_all_hats(
     let mut contents:String=String::new();
 
     for block in blocks.entries(){
-       contents.push_str(format!("Thread{{function:{}}},",create_hat(block, blocks, block_reference).unwrap()).as_str());
+        let hat=create_hat(block,blocks,block_reference);
+        match hat{
+            Ok(x)=>{contents.push_str(format!("Thread{{function:{},object:Self}}",x.as_str()).as_str())},
+            Err(x)=>{continue;}
+        }
     } 
     //return Err(String::from("Bad"));
     return Ok(format!("{}",contents));
