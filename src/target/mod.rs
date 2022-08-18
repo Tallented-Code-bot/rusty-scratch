@@ -1,7 +1,6 @@
 extern crate rand;
 use std::{collections::HashMap, f32::consts::PI};
 use rand::Rng;
-use genawaiter::stack;
 
 #[derive(Clone)]
 pub enum RotationStyle {
@@ -80,16 +79,115 @@ impl From<String> for Value {
     }
 }
 
-/// The target trait.
-///
-/// A target is anything that can run scratch code, meaning
-/// either a sprite or the stage.
-trait Target {
-    // fn new(&self) -> Self;
-    fn set_x(&mut self, x: f32);
-    fn set_y(&mut self, y: f32);
-    fn get_x(&self) -> f32;
-    fn get_y(&self) -> f32;
+/// A thread object.
+#[derive(Clone)]
+struct Thread<'a> {
+    function: fn(object: &mut Target),
+    object:&'a Target<'a>,
+}
+
+/// The main project class.  This is in charge of running threads and
+/// redrawing the screen.
+struct Program<'a>{
+    threads:Vec<(Thread<'a>,&'a Target<'a>)>,
+    //targets:Vec<Box<dyn Target>>
+    targets:Vec<Target<'a>>
+}
+
+impl Program{
+    /// Run 1 tick
+    fn tick(&mut self){
+        for thread in &mut self.threads{
+            (thread.0.function)(&mut thread.1);
+        }
+    }
+    fn new()->Self{
+        return Program{
+            threads:Vec::new(),
+            targets:Vec::new()
+        }
+    }
+
+    /// Add threads from a sprite to the program.
+    /// This _moves_ the threads out of the sprite.
+    fn add_threads<'a>(&'a mut self){
+        //for thread in sprite.blocks{
+        //    self.threads.push((thread,&sprite))
+        //}
+        for target in &self.targets{
+            for thread in target.blocks{
+                self.threads.push((thread,target));
+            }
+        }
+
+        //self.threads.append(&mut sprite.blocks);
+    }
+
+}
+
+/// A target(either a sprite or the stage).
+struct Target<'a>{
+    /// Whether the target is the stage or not
+    isStage:bool,
+    /// The name of the target.
+    /// It should always be "Stage" if `isStage` is true.
+    name:String,
+    /// A hashmap of variables.
+    variables:HashMap<String,Value>,
+    /// The lists in this target.
+    /// UNIMPLEMENTED
+    lists:(),
+
+    /// A list of broadcasts.  This is normally only present in the stage.
+    /// UNIMPLEMENTED
+    broadcasts:(),
+    /// The blocks in the target, grouped in threads(hats).
+    blocks:Vec<Thread<'a>>,
+    /// The current costume or backdrop number.
+    currentCostume:u32,
+    /// A list of costumes.
+    /// UNIMPLEMENTED
+    costumes:(),
+    /// A list of sounds.
+    /// UNIMPLEMENTED
+    sounds:(),
+    layerOrder:u32,
+    volume:u32,
+    // Stage variables ------------------------------------v------------------------------------
+    /// The tempo, in BPM.
+    tempo: i32,
+    /// Determines if video is on or off.
+    videoState: VideoState,
+    /// The video transparency  Defaults to 50.  This has no effect if `videoState`
+    /// is off or the project does not use an exptension with video input.
+    videoTransparency: i32,
+    /// The text to speech language.  Defaults to the editor language.
+    textToSpeechLanguage: String,
+    //Sprite variables ------------------------------------v------------------------------------
+    /// Whether the sprite is visibile.  Defaults to true.
+    visible: bool,
+    /// The x-coordinate.  Defaults to 0.
+    x: f32,
+    /// The y-coordinate.  Defaults to 0.
+    y: f32,
+    /// The sprite's size, as a percentage.  Defaults to 100.
+    size: f32,
+    /// The direction of the sprite in degrees clockwise from up.  Defaults to 90.
+    direction: f32,
+    /// Whether the sprite is draggable.  Defaults to false.
+    draggable: bool,
+    /// The rotation style.
+    rotation_style: RotationStyle,
+    /// A reference to the stage
+    stage:&'a Target<'a>,
+    //-------------------------------------------------------------------------------------------
+}
+
+impl Target<'_>{
+    // fn set_x(&mut self, x: f32);
+    // fn set_y(&mut self, y: f32);
+    // fn get_x(&self) -> f32;
+    // fn get_y(&self) -> f32;
     fn go_to(&mut self, x: f32, y: f32) {
         self.set_x(x);
         self.set_y(y);
@@ -103,9 +201,6 @@ trait Target {
     fn say(&self, text: String) {
         println!("{}", text);
     }
-    fn direction(&self) -> f32;
-    fn point_direction(&mut self, direction: f32);
-    fn set_rotation_style(&mut self, style: RotationStyle);
     fn move_steps(&mut self, steps: f32) {
         let radians = self.direction() * PI / 180.0;
         let dx = steps * radians.cos();
@@ -118,8 +213,6 @@ trait Target {
     fn turn_right(&mut self, degrees: f32) {
         self.point_direction(self.direction() + degrees);
     }
-    fn get_variable(&self, id: String) -> Option<&Value>;
-    fn set_variable(&mut self, id: String, value: &mut Value);
     fn change_variable(&mut self, id: String, amount: f32) {
         // self.set_variable(id, self.get_variable(id).unwrap() + amount);
     }
@@ -127,79 +220,13 @@ trait Target {
         let mut rng=rand::thread_rng();
         return rng.gen_range(from..to);
     }
-}
 
-/// The stage.
-///
-/// Since the stage cannot run some blocks, some
-/// of these definitions are empty.
-#[derive(Clone)]
-struct Stage {
-    /// The tempo, in BPM.
-    tempo: i32,
-    /// Determines if video is on or off.
-    videoState: VideoState,
-    /// The video transparency  Defaults to 50.  This has no effect if `videoState`
-    /// is off or the project does not use an exptension with video input.
-    videoTransparency: i32,
-    /// The text to speech language.  Defaults to the editor language.
-    textToSpeechLanguage: String,
-    variables: HashMap<String, Value>,
-}
 
-impl Target for Stage {
-    // fn new(&self) -> Self {
-    //     return Stage {
-    //         tempo: 60,
-    //         videoState: VideoState::Off,
-    //         videoTransparency: 50,
-    //         textToSpeechLangauge: "en".to_string(),
-    //     };
-    // }
-    fn set_x(&mut self, _x: f32) {}
-    fn set_y(&mut self, _y: f32) {}
-    /// Returns 0
-    fn get_x(&self) -> f32 {
-        return 0.0;
-    }
-    /// Returns 0
-    fn get_y(&self) -> f32 {
-        return 0.0;
-    }
-    fn direction(&self) -> f32 {
-        0.0
-    }
-    /// Does nothing; the stage cannot point in a direction.
-    fn point_direction(&mut self, direction: f32) {}
-    /// Does nothing; the stage cannot "say" anything.
-    fn say(&self, text: String) {}
-    fn set_rotation_style(&mut self, style: RotationStyle) {}
-    // fn set_variable(&mut self, id: String, value: &mut Value);
-    fn get_variable(&self, id: String) -> Option<&Value> {
-        return self.variables.get(&id);
-    }
-    fn set_variable(&mut self, id: String, value: &mut Value) {
-        if self.variables.contains_key(&id) {
-            let mut variable = self.variables.entry(id).or_default();
-            variable = value;
-        }
-    }
-}
 
-impl Target for Sprite {
-    // fn new(&self) -> Self {
-    //     return Sprite {
-    //         name: String::from("Sprite1"),
-    //         visible: true,
-    //         x: 0,
-    //         y: 0,
-    //         size: 100,
-    //         direction: 90,
-    //         draggable: false,
-    //         rotation_style: RotationStyle::AllAround,
-    //         blocks: Vec::new(),
-    //     };
-    // }
+
+
+
+
     fn set_x(&mut self, x: f32) {
         self.x = x;
     }
@@ -244,92 +271,4 @@ impl Target for Sprite {
             variable = value;
         }
     }
-}
-
-#[derive(Clone)]
-struct Sprite {
-    /// Whether the sprite is visibile.  Defaults to true.
-    visible: bool,
-    /// The x-coordinate.  Defaults to 0.
-    x: f32,
-    /// The y-coordinate.  Defaults to 0.
-    y: f32,
-    /// The sprite's size, as a percentage.  Defaults to 100.
-    size: f32,
-    /// The direction of the sprite in degrees clockwise from up.  Defaults to 90.
-    direction: f32,
-    /// Whether the sprite is draggable.  Defaults to false.
-    draggable: bool,
-    /// The rotation style.
-    rotation_style: RotationStyle,
-    /// The name of the sprite.
-    name: String,
-    /// The blocks in the sprite.
-    /// This is currently only 1 stack of blocks,
-    /// but this should change soon.
-    blocks:Vec<Thread>,
-    /// A list of variables for the sprite
-    variables: HashMap<String, Value>,
-
-    stage: Stage,
-}
-
-
-impl Sprite {}
-
-
-// /// A stack of blocks
-// struct Stack {
-//     stack_type: StackType,
-//     reference: String,
-// }
-
-// enum StackType {
-//     FlagClicked,
-// }
-
-/// A thread object.
-#[derive(Clone)]
-struct Thread {
-    function: fn(object: &mut dyn Target),
-    object:Box<dyn Target>,
-}
-
-/// The main project class.  This is in charge of running threads and
-/// redrawing the screen.
-struct Program<'a>{
-    threads:Vec<(Thread,&'a Sprite)>,
-    //targets:Vec<Box<dyn Target>>
-    targets:Vec<Sprite>
-}
-
-impl Program<'_>{
-    /// Run 1 tick
-    fn tick(&mut self){
-        for thread in &mut self.threads{
-            (thread.0.function)(thread.1);
-        }
-    }
-    fn new()->Self{
-        return Program{
-            threads:Vec::new(),
-            targets:Vec::new()
-        }
-    }
-
-    /// Add threads from a sprite to the program.
-    /// This _moves_ the threads out of the sprite.
-    fn add_threads(&mut self){
-        //for thread in sprite.blocks{
-        //    self.threads.push((thread,&sprite))
-        //}
-        for target in self.targets{
-            for thread in target.blocks{
-                self.threads.push((thread,&target));
-            }
-        }
-
-        //self.threads.append(&mut sprite.blocks);
-    }
-
 }
