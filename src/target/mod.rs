@@ -89,16 +89,17 @@ struct Thread<'a> {
 /// The main project class.  This is in charge of running threads and
 /// redrawing the screen.
 struct Program<'a>{
-    threads:Vec<(Thread<'a>,&'a Target<'a>)>,
+    threads:Vec<(Thread<'a>,usize)>,
     //targets:Vec<Box<dyn Target>>
     targets:Vec<Target<'a>>
 }
 
-impl Program{
+impl Program<'_>{
     /// Run 1 tick
     fn tick(&mut self){
         for thread in &mut self.threads{
-            (thread.0.function)(&mut thread.1);
+            //(thread.0.function)(&mut thread.1);
+            (thread.0.function)(&mut self.targets[thread.1])
         }
     }
     fn new()->Self{
@@ -110,13 +111,13 @@ impl Program{
 
     /// Add threads from a sprite to the program.
     /// This _moves_ the threads out of the sprite.
-    fn add_threads<'a>(&'a mut self){
+    fn add_threads<'a>(&mut self){
         //for thread in sprite.blocks{
         //    self.threads.push((thread,&sprite))
         //}
-        for target in &self.targets{
-            for thread in target.blocks{
-                self.threads.push((thread,target));
+        for (index,target) in self.targets.iter().enumerate(){
+            for thread in target.blocks.clone(){
+                self.threads.push((thread,index));
             }
         }
 
@@ -126,6 +127,7 @@ impl Program{
 }
 
 /// A target(either a sprite or the stage).
+#[derive(Clone)]
 struct Target<'a>{
     /// Whether the target is the stage or not
     isStage:bool,
