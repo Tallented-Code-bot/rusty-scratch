@@ -2,7 +2,7 @@ extern crate rand;
 use std::{collections::HashMap, f32::consts::PI};
 use rand::Rng;
 
-#[derive(Clone)]
+#[derive(Clone,Debug)]
 pub enum RotationStyle {
     AllAround,
     LeftRight,
@@ -23,6 +23,16 @@ impl RotationStyle {
             RotationStyle::AllAround => "RotationStyle::AllAround",
             RotationStyle::LeftRight => "RotationStyle::LeftRight",
             RotationStyle::DontRotate => "RotationStyle::DontRotate",
+        }
+    }
+}
+
+impl std::fmt::Display for RotationStyle{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RotationStyle::AllAround => write!(f,"RotationStyle::AllAround"),
+            RotationStyle::LeftRight => write!(f,"RotationStyle::LeftRight"),
+            RotationStyle::DontRotate => write!(f,"RotationStyle::DontRotate"),
         }
     }
 }
@@ -181,7 +191,7 @@ struct Target<'a>{
     /// The rotation style.
     rotation_style: RotationStyle,
     /// A reference to the stage
-    stage:&'a Target<'a>,
+    stage:Option<&'a Target<'a>>,
     //-------------------------------------------------------------------------------------------
 }
 
@@ -258,8 +268,13 @@ impl Target<'_>{
             Some(variable) => return Some(variable),
             None => {}
         }
+        
 
-        let variable = self.stage.get_variable(id);
+        let variable = match self.stage{
+            Some(stage)=>{stage.get_variable(id)},
+            None=>{None}
+        };
+
 
         match variable {
             Some(variable) => return Some(variable),

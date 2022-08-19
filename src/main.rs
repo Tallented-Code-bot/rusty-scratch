@@ -325,7 +325,7 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
     format!(
         "let mut {name}=Target{{
             isStage:{isStage},
-            name:{name},
+            name:String::from(\"{name}\"),
             variables:{variables},
             lists:(),
             broadcasts:(),
@@ -347,84 +347,31 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
             draggable:{draggable},
             rotation_style:{rotation_style},
             stage:{stage}
-        }}",
+        }};",
         name=target["name"],
         isStage=target["isStage"],
-        variables=target["variables"],
+        variables="HashMap::new()",//target["variables"],
         currentCostume=target["currentCostume"],
         layerOrder=target["layerOrder"],
         volume=target["volume"],
         tempo=or_default(&target["tempo"], String::from("0")),
-        videoState=or_default(&target["videoState"],String::from("0")),
-        textToSpeechLanguage=or_default(&target["textToSpeechLanguage"],String::from("0")),
+        videoState=VideoState::from_str(or_default(&target["videoState"],String::from("off")).as_str().unwrap()).unwrap().to_str(),
+        textToSpeechLanguage=or_default(&target["textToSpeechLanguage"],String::from("String::from(\"en\")")),
         videoTransparency=or_default(&target["videoTransparency"],String::from("0")),
-        visible=or_default(&target["visible"],String::from("0")),
+        visible=or_default(&target["visible"],String::from("true")),
         x=or_default(&target["x"],String::from("0")),
         y=or_default(&target["y"],String::from("0")),
         size=or_default(&target["size"],String::from("0")),
         direction=or_default(&target["direction"],String::from("0")),
-        draggable=or_default(&target["draggable"],String::from("0")),
-        rotation_style=or_default(&target["rotation_style"],String::from("0")),
-        stage=or_default(&target["stage"],String::from("0")),
+        draggable=or_default(&target["draggable"],String::from("false")),
+        rotation_style=RotationStyle::from_str(or_default(&target["rotation_style"],String::from("don't rotate")).as_str().unwrap()).unwrap(),
+        stage=match target["isStage"].as_bool().unwrap(){
+            true=>{"None"},
+            false=>{"Some(&Stage)"}
+        }
     )
 
 
-    // If the target is the stage
-    // if target["isStage"].as_bool().unwrap() {
-        // return format!(
-            // "let mut {name}=Stage{{
-                // tempo:{tempo},
-                // videoState:{videoState},
-                // videoTransparency:{videoTransparency},
-                // textToSpeechLanguage:String::from(\"{textToSpeechLanguage}\"),
-                // variables:HashMap::new(),
-            // }};",
-            // name = target["name"],
-            // tempo = target["tempo"],
-            // videoState = VideoState::from_str(target["videoState"].as_str().unwrap())
-                // .unwrap()
-                // .to_str(),
-            // textToSpeechLanguage = target["textToSpeechLanguage"],
-            // videoTransparency = target["videoTransparency"]
-        // );
-    // } else {
-        // /* let function = create_hat(
-            // (
-                // ";R9G|C|f#(g@5F[3Im)I",
-                // &target["blocks"][";R9G|C|f#(g@5F[3Im)I"],
-            // ),
-            // &target["blocks"],
-            // &block_reference,
-        // )
-        // .unwrap(); */
-        // let function=create_all_hats(&target["blocks"], &block_reference).unwrap();
-
-        // return format!(
-            // "let mut {name}=Sprite{{
-                // visible:{visible},
-                // x:{x}f32,
-                // y:{y}f32,
-                // size:{size}f32,
-                // direction:{direction}f32,
-                // draggable:{draggable},
-                // rotation_style:{rotationStyle},
-                // name:\"{name}\".to_string(),
-                // blocks:vec![ {function} ],
-                // stage:Stage,
-                // variables:HashMap::new(),
-            // }};",
-            // name = target["name"],
-            // visible = target["visible"],
-            // x = target["x"],
-            // y = target["y"],
-            // size = target["size"],
-            // direction = target["direction"],
-            // draggable = target["draggable"],
-            // rotationStyle = RotationStyle::from_str(target["rotationStyle"].as_str().unwrap())
-                // .unwrap()
-                // .to_str(),
-        // );
-    // }
 }
 
 // struct blockstack
@@ -476,9 +423,9 @@ fn create_project()->Result<(),io::Error>{
 }
 
 /// Return a default value if JsonValue is null.
-fn or_default(input:&JsonValue,default:String)->String{
+fn or_default(input:&JsonValue,default:String)->JsonValue{
     match input.is_null(){
-        true=>default,
-        false=>input.to_string()
+        true=>JsonValue::from(default),
+        false=>{input.clone()}
     }
 }
