@@ -291,13 +291,20 @@ fn create_hat(
 
 /// Returns all stacks of blocks.
 fn create_all_hats(
+    target:&JsonValue,
     blocks: &JsonValue,
     block_reference: &HashMap<&str, &str>,
 )->Result<String,String>{
     let mut contents:String=String::new();
 
     for block in blocks.entries(){
-       contents.push_str(format!("Thread{{function:{}}},",create_hat(block, blocks, block_reference).unwrap()).as_str());
+        let hat=create_hat(block,blocks,block_reference);
+        match hat{
+            Ok(ref x)=>{},
+            Err(x)=>{continue;}
+        }
+
+       contents.push_str(format!("{},",hat.unwrap()).as_str());
     } 
     //return Err(String::from("Bad"));
     return Ok(format!("{}",contents));
@@ -321,7 +328,7 @@ fn write_to_file(
 
 /// Generate a new target(sprite or stage) from json.
 fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) -> String {
-    let function=create_all_hats(&target["blocks"],block_reference).unwrap();
+    let function=create_all_hats(&target,&target["blocks"],block_reference).unwrap();
     format!(
         "let mut {name}=Target{{
             isStage:{isStage},
