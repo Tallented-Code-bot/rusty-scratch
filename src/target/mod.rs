@@ -242,30 +242,43 @@ trait OldTarget {
 //     }
 // }
 
-// struct Sprite {
-//     /// Whether the sprite is visibile.  Defaults to true.
-//     visible: bool,
-//     /// The x-coordinate.  Defaults to 0.
-//     x: f32,
-//     /// The y-coordinate.  Defaults to 0.
-//     y: f32,
-//     /// The sprite's size, as a percentage.  Defaults to 100.
-//     size: f32,
-//     /// The direction of the sprite in degrees clockwise from up.  Defaults to 90.
-//     direction: f32,
-//     /// Whether the sprite is draggable.  Defaults to false.
-//     draggable: bool,
-//     /// The rotation style.
-//     rotation_style: RotationStyle,
-//     /// The name of the sprite.
-//     name: String,
-//     /// The blocks in the sprite.
-//     /// This is currently only 1 stack of blocks,
-//     /// but this should change soon.
-//     blocks: Vec<Thread>,
-//     /// A list of variables for the sprite
-//     variables: HashMap<String, Value>,
-// }
+struct Sprite {
+    /// Whether the sprite is visibile.  Defaults to true.
+    visible: bool,
+    /// The x-coordinate.  Defaults to 0.
+    x: f32,
+    /// The y-coordinate.  Defaults to 0.
+    y: f32,
+    /// The sprite's size, as a percentage.  Defaults to 100.
+    size: f32,
+    /// The direction of the sprite in degrees clockwise from up.  Defaults to 90.
+    direction: f32,
+    /// Whether the sprite is draggable.  Defaults to false.
+    draggable: bool,
+    /// The rotation style.
+    rotation_style: RotationStyle,
+    /// The name of the sprite.
+    name: String,
+    /// The blocks in the sprite.
+    /// This is currently only 1 stack of blocks,
+    /// but this should change soon.
+    blocks: Vec<Thread>,
+    /// A list of variables for the sprite
+    variables: HashMap<String, Value>,
+}
+
+fn move_steps(object: Option<&mut Sprite>, steps: f32) {
+    //unwrap option
+    if let Some(uo) = object {
+        let radians = uo.direction * PI / 180.0;
+        uo.x += steps * radians.cos();
+        uo.y += steps * radians.sin();
+    }
+}
+
+fn say(speech: String) {
+    println!("{}", speech);
+}
 
 // impl Sprite {}
 
@@ -281,14 +294,19 @@ trait OldTarget {
 
 /// A thread object.
 struct Thread {
-    function: fn(object: &mut Target),
-    // object: &'a mut Target<'a>,
+    function: fn(object: Option<&mut Sprite>),
+    // object: &mut Sprite,
+
+    // The object that this thread works on.  The number represents the index
+    // of the object in the program vector.
+    obj_index: usize,
 }
 
 /// The main project class.  This is in charge of running threads and
 /// redrawing the screen.
 struct Program {
     threads: Vec<Thread>,
+    objects: Vec<Sprite>,
 }
 
 impl Program {
@@ -296,11 +314,13 @@ impl Program {
     fn tick(&mut self) {
         for thread in &mut self.threads {
             // (thread.function)(&mut thread.object);
+            (thread.function)(Some(&mut self.objects[thread.obj_index]))
         }
     }
     fn new() -> Self {
         return Program {
             threads: Vec::new(),
+            objects: Vec::new(),
         };
     }
 
@@ -309,6 +329,16 @@ impl Program {
     fn add_threads(&mut self, mut threads: Vec<Thread>) {
         // self.threads.append(&mut sprite.blocks);
         self.threads.append(&mut threads)
+    }
+
+    fn add_all_threads(&mut self) {
+        for object in &mut self.objects {
+            self.threads.append(&mut object.blocks);
+        }
+    }
+
+    fn add_object(&mut self, object: Sprite) {
+        self.objects.push(object);
     }
 }
 

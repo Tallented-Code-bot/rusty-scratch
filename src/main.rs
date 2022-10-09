@@ -34,7 +34,8 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
     blocks.insert("motion_sety", "object.set_y(Yf32)");
     blocks.insert("motion_changexby", "object.change_x_by(DXf32)");
     blocks.insert("motion_changeyby", "object.change_y_by(DYf32);");
-    blocks.insert("motion_movesteps", "object.move_steps(STEPSf32);");
+    // blocks.insert("motion_movesteps", "object.move_steps(STEPSf32);");
+    blocks.insert("motion_movesteps", "move_steps(object,STEPSf32);");
     blocks.insert("motion_turnleft", "object.turn_left(DEGREESf32)");
     blocks.insert("motion_turnright", "object.turn_right(DEGREESf32)");
     blocks.insert("motion_gotoxy", "object.go_to(Xf32,Yf32)");
@@ -44,7 +45,9 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
     blocks.insert("control_if", "if CONDITION {SUBSTACK}");
     blocks.insert("control_if_else", "if CONDITION {SUBSTACK}else{SUBSTACK2}");
     blocks.insert("control_repeat_until", "while !CONDITION{SUBSTACK}"); //TODO add yielding
-    blocks.insert("looks_say", "object.say(String::from(\"MESSAGE\"));");
+
+    // blocks.insert("looks_say", "object.say(String::from(\"MESSAGE\"));");
+    blocks.insert("looks_say", "say(String::from(\"MESSAGE\"));");
     blocks.insert("event_whenflagclicked", "");
     blocks.insert("data_variable", "object.get_variable(VARIABLE)");
     blocks.insert(
@@ -97,11 +100,17 @@ fn main() {
         // Below this is generated code.
 
         fn main(){{
+            let mut program=Program::new();
             {targets}
             // (Sprite1.blocks.function)(&mut Sprite1);
             
-            let mut program=Program::new();
-            program.add_threads(&mut Sprite1.blocks);
+            //program.add_threads(Sprite1.blocks);
+            program.add_all_threads();
+
+            // tick 3 times for testing
+            program.tick();
+            program.tick();
+            program.tick();
         }}
         ",
         lib = lib,
@@ -281,7 +290,7 @@ fn create_hat(
 
     // let function = "fn NAME (){CONTENTS}";
     // let name=format!{}
-    let function = format!("|object: &mut Target|{{{}}}", contents.join("\n"));
+    let function = format!("|object: Option<&mut Sprite> |{{{}}}", contents.join("\n"));
 
     // TODO Remove this
     return Ok(String::from(function));
@@ -297,8 +306,13 @@ fn create_all_hats(
     for block in blocks.entries() {
         let hat = create_hat(block, blocks, block_reference);
         match hat {
-            Ok(x) => contents
-                .push_str(format!("Thread{{function:{}/*,object:Self*/}}", x.as_str()).as_str()),
+            Ok(x) => contents.push_str(
+                format!(
+                    "Thread{{function:{},obj_index:program.objects.len()}}",
+                    x.as_str()
+                )
+                .as_str(),
+            ),
             Err(x) => {
                 continue;
             }
@@ -363,7 +377,7 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
         let function = create_all_hats(&target["blocks"], &block_reference).unwrap();
 
         return format!(
-            "let mut {name}=Target::Sprite{{
+            "let mut {name}=Sprite{{
                 visible:{visible},
                 x:{x}f32,
                 y:{y}f32,
@@ -374,7 +388,8 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
                 name:\"{name}\".to_string(),
                 blocks:vec![ {function} ],
                 variables:HashMap::new(),
-            }};",
+            }};
+            program.add_object({name});",
             name = target["name"],
             visible = target["visible"],
             x = target["x"],
