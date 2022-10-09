@@ -1,14 +1,14 @@
 use crate::target::{RotationStyle, VideoState};
 use json::{self, JsonValue};
+use reqwest;
 use std::collections::HashMap;
 use std::error::Error;
-use std::process::{Command,Output};
 use std::fs;
-use std::io::Read;
-use std::io;
-use zip;
 use std::fs::File;
-use reqwest;
+use std::io;
+use std::io::Read;
+use std::process::{Command, Output};
+use zip;
 
 mod target;
 pub mod thread;
@@ -55,17 +55,17 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
         "data_changevariableby",
         "object.change_variable(String::from(\"VARIABLE\"),VALUEf32);",
     );
-    blocks.insert("operator_add","NUM1+NUM2");
-    blocks.insert("operator_subtract","NUM1-NUM2");
-    blocks.insert("operator_multiply","NUM1*NUM2");
+    blocks.insert("operator_add", "NUM1+NUM2");
+    blocks.insert("operator_subtract", "NUM1-NUM2");
+    blocks.insert("operator_multiply", "NUM1*NUM2");
     blocks.insert("operator_divide", "NUM1/NUM2");
-    blocks.insert("operator_random","generate_random(FROM,TO)");
-    blocks.insert("operator_lt","OPERAND1<OPERAND2");
-    blocks.insert("operator)_equals","OPERAND1=OPERAND2");
-    blocks.insert("operator_gt","OPERAND1>OPERAND2");
-    blocks.insert("operator_and","OPERAND1&&OPERAND2");
-    blocks.insert("operator_or","OPERAND1||OPERAND2");
-    blocks.insert("operator_not","!OPERAND");
+    blocks.insert("operator_random", "generate_random(FROM,TO)");
+    blocks.insert("operator_lt", "OPERAND1<OPERAND2");
+    blocks.insert("operator)_equals", "OPERAND1=OPERAND2");
+    blocks.insert("operator_gt", "OPERAND1>OPERAND2");
+    blocks.insert("operator_and", "OPERAND1&&OPERAND2");
+    blocks.insert("operator_or", "OPERAND1||OPERAND2");
+    blocks.insert("operator_not", "!OPERAND");
 
     return blocks;
 }
@@ -74,12 +74,11 @@ fn main() {
     // let file = fs::read_to_string("./project.json").expect("Could not read file");
     // let project = get_project(String::from("./test_variables.sb3")).unwrap(); // TODO add proper error handling
     let project = get_project_online(720925925).unwrap(); // TODO add proper error handling
-    std::fs::write("project.json",project.to_string());
+    std::fs::write("project.json", project.to_string());
     let block_reference = make_blocks_lookup();
     create_project(); // create a new cargo project
-    //510186917
+                      //510186917
     let filename = "output/src/main.rs";
-
 
     // Get the library file to include
     let lib = include_str!("../target/target.rs");
@@ -102,7 +101,7 @@ fn main() {
             // (Sprite1.blocks.function)(&mut Sprite1);
             
             let mut program=Program::new();
-            program.add_threads(&mut Sprite1);
+            program.add_threads(&mut Sprite1.blocks);
         }}
         ",
         lib = lib,
@@ -150,15 +149,14 @@ fn get_project(filename: String) -> Result<JsonValue, Box<dyn Error>> {
     return Ok(project);
 }
 
-
 /// Get an online scratch project.
-fn get_project_online(id:u32)->Result<JsonValue,Box<dyn Error>>{
+fn get_project_online(id: u32) -> Result<JsonValue, Box<dyn Error>> {
     // Create the project url.
-    let url=format!("https://projects.scratch.mit.edu/{}",id);
+    let url = format!("https://projects.scratch.mit.edu/{}", id);
 
     // Get the project (`fetch_sb3_file` creates a file called "project.json".
     // I have not yet figured out how to get the project assets.)
-    let project=json::parse(fetch_sb3_file(url).as_str())?;
+    let project = json::parse(fetch_sb3_file(url).as_str())?;
 
     return Ok(project);
 }
@@ -191,12 +189,10 @@ fn get_block(
                 9 => function.replacen(input.0, input.1[1][1].as_str().unwrap(), 1), // Color
                 10 => function.replacen(input.0, input.1[1][1].as_str().unwrap(), 1), // String
                 11 => todo!(),
-                12 => function.replacen( // Variable
+                12 => function.replacen(
+                    // Variable
                     input.0,
-                    format!(
-                        "object.get_variable({})",
-                        input.1[1][2].as_str().unwrap()
-                    ).as_str(),
+                    format!("object.get_variable({})", input.1[1][2].as_str().unwrap()).as_str(),
                     1,
                 ),
                 13 => todo!(),
@@ -285,7 +281,7 @@ fn create_hat(
 
     // let function = "fn NAME (){CONTENTS}";
     // let name=format!{}
-    let function = format!("|object: &mut dyn Target|{{{}}}", contents.join("\n"));
+    let function = format!("|object: &mut Target|{{{}}}", contents.join("\n"));
 
     // TODO Remove this
     return Ok(String::from(function));
@@ -295,18 +291,21 @@ fn create_hat(
 fn create_all_hats(
     blocks: &JsonValue,
     block_reference: &HashMap<&str, &str>,
-)->Result<String,String>{
-    let mut contents:String=String::new();
+) -> Result<String, String> {
+    let mut contents: String = String::new();
 
-    for block in blocks.entries(){
-        let hat=create_hat(block,blocks,block_reference);
-        match hat{
-            Ok(x)=>{contents.push_str(format!("Thread{{function:{},object:Self}}",x.as_str()).as_str())},
-            Err(x)=>{continue;}
+    for block in blocks.entries() {
+        let hat = create_hat(block, blocks, block_reference);
+        match hat {
+            Ok(x) => contents
+                .push_str(format!("Thread{{function:{}/*,object:Self*/}}", x.as_str()).as_str()),
+            Err(x) => {
+                continue;
+            }
         }
-    } 
+    }
     //return Err(String::from("Bad"));
-    return Ok(format!("{}",contents));
+    return Ok(format!("{}", contents));
 }
 
 /// Writes the output rust file.
@@ -330,13 +329,19 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
     // If the target is the stage
     if target["isStage"].as_bool().unwrap() {
         return format!(
-            "let mut {name}=Stage{{
-                tempo:{tempo},
-                videoState:{videoState},
-                videoTransparency:{videoTransparency},
-                textToSpeechLanguage:String::from(\"{textToSpeechLanguage}\"),
-                variables:HashMap::new(),
-            }};",
+            "//let mut {name}=Target::Stage{{
+             //   tempo:{tempo},
+             //   video_state:{videoState},
+             //   video_transparency:{videoTransparency},
+             //   text_to_speech_language:String::from(\"{textToSpeechLanguage}\"),
+             //   variables:HashMap::new(),
+            //}};
+            let mut tempo={tempo};
+            let mut video_state={videoState};
+            let mut video_transparency={videoTransparency};
+            let mut text_to_speech_language=String::from(\"{textToSpeechLanguage}\");
+            let mut global_variables:HashMap<String,Value> =HashMap::new();
+",
             name = target["name"],
             tempo = target["tempo"],
             videoState = VideoState::from_str(target["videoState"].as_str().unwrap())
@@ -355,10 +360,10 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
             &block_reference,
         )
         .unwrap(); */
-        let function=create_all_hats(&target["blocks"], &block_reference).unwrap();
+        let function = create_all_hats(&target["blocks"], &block_reference).unwrap();
 
         return format!(
-            "let mut {name}=Sprite{{
+            "let mut {name}=Target::Sprite{{
                 visible:{visible},
                 x:{x}f32,
                 y:{y}f32,
@@ -368,7 +373,6 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
                 rotation_style:{rotationStyle},
                 name:\"{name}\".to_string(),
                 blocks:vec![ {function} ],
-                stage:Stage,
                 variables:HashMap::new(),
             }};",
             name = target["name"],
@@ -389,12 +393,10 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
 //
 // type of hat
 
-
-
 /// Fetch a scratch sb3 file.
-fn fetch_sb3_file(url:String)->String{
+fn fetch_sb3_file(url: String) -> String {
     // fetch the file,
-    let mut response=reqwest::blocking::get(url).expect("Could not get file.");
+    let mut response = reqwest::blocking::get(url).expect("Could not get file.");
     // create a new file,
     //let mut out=File::create("project.sv3").expect("Could not create file");
     // and copy the contents of the response to the new file.
@@ -404,20 +406,15 @@ fn fetch_sb3_file(url:String)->String{
 }
 
 /// Formats the given filename with rustfmt.
-fn format_file(filename: String)->io::Result<Output>{
-    return Command::new("rustfmt")
-        .arg(filename)
-        .output();
-        //.expect("Could not execute rustfmt"); 
+fn format_file(filename: String) -> io::Result<Output> {
+    return Command::new("rustfmt").arg(filename).output();
+    //.expect("Could not execute rustfmt");
 }
 
-fn create_project()->Result<(),io::Error>{
-    Command::new("cargo")
-        .arg("new")
-        .arg("output")
-        .output()?;
-    
-    let toml="
+fn create_project() -> Result<(), io::Error> {
+    Command::new("cargo").arg("new").arg("output").output()?;
+
+    let toml = "
     [package]
     name=\"output\"
     version=\"1.0.0\"
@@ -428,7 +425,7 @@ fn create_project()->Result<(),io::Error>{
     genawaiter=\"0.99.1\"
     ";
 
-    fs::write("output/Cargo.toml",toml)?;
+    fs::write("output/Cargo.toml", toml)?;
 
     return Ok(());
 }
