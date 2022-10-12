@@ -290,7 +290,13 @@ fn create_hat(
 
     // let function = "fn NAME (){CONTENTS}";
     // let name=format!{}
-    let function = format!("|object: Option<&mut Sprite> |{{{}}}", contents.join("\n"));
+    let function = format!(
+        "gen!({{
+let object:Option<&mut Sprite> =yield_!(());
+{}
+}})",
+        contents.join("\n")
+    );
 
     // TODO Remove this
     return Ok(String::from(function));

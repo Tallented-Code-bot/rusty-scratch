@@ -1,7 +1,12 @@
 extern crate rand;
-use genawaiter::stack;
+use genawaiter::rc::gen;
+use genawaiter::yield_;
 use rand::Rng;
-use std::{collections::HashMap, f32::consts::PI};
+use std::{
+    collections::HashMap,
+    f32::consts::PI,
+    future::{Future, IntoFuture},
+};
 
 pub enum RotationStyle {
     AllAround,
@@ -242,7 +247,7 @@ trait OldTarget {
 //     }
 // }
 
-struct Sprite {
+struct Sprite<'a> {
     /// Whether the sprite is visibile.  Defaults to true.
     visible: bool,
     /// The x-coordinate.  Defaults to 0.
@@ -262,7 +267,7 @@ struct Sprite {
     /// The blocks in the sprite.
     /// This is currently only 1 stack of blocks,
     /// but this should change soon.
-    blocks: Vec<Thread>,
+    blocks: Vec<Thread<'a>>,
     /// A list of variables for the sprite
     variables: HashMap<String, Value>,
 }
@@ -292,9 +297,26 @@ fn say(speech: String) {
 //     FlagClicked,
 // }
 
+/// An emty type that implements future.
+struct EmptyFuture {}
+
+/// A future that always returns `()` immediately.
+impl Future for EmptyFuture {
+    type Output = ();
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        std::task::Poll::Ready(())
+    }
+}
+
 /// A thread object.
-struct Thread {
-    function: fn(object: Option<&mut Sprite>),
+struct Thread<'a> {
+    // function: fn(object: Option<&mut Sprite>),
+    // function: genawaiter::rc::Gen<(), Option<&'a mut Sprite>, impl Future<Output = ()>>,
+    function: genawaiter::rc::Gen<(), Option<&'a mut Sprite<'a>>, EmptyFuture>,
     // object: &mut Sprite,
 
     // The object that this thread works on.  The number represents the index
@@ -304,17 +326,26 @@ struct Thread {
 
 /// The main project class.  This is in charge of running threads and
 /// redrawing the screen.
-struct Program {
-    threads: Vec<Thread>,
-    objects: Vec<Sprite>,
+struct Program<'spriteinscript, 'program> {
+    threads: Vec<Thread<'spriteinscript>>,
+    objects: Vec<Sprite<'program>>,
 }
 
-impl Program {
+impl<'spriteinscript, 'program> Program<'spriteinscript, 'program> {
     /// Run 1 tick
-    fn tick(&mut self) {
+    fn tick<'mutself>(&'mutself mut self)
+    where
+        'spriteinscript: 'program,
+        'mutself: 'spriteinscript,
+    {
         for thread in &mut self.threads {
             // (thread.function)(&mut thread.object);
-            (thread.function)(Some(&mut self.objects[thread.obj_index]))
+            // (thread.function)(Some(&mut self.objects[thread.obj_index]))
+            {
+                thread
+                    .function
+                    .resume_with(Some(&mut self.objects[thread.obj_index]));
+            }
         }
     }
     fn new() -> Self {
@@ -326,142 +357,150 @@ impl Program {
 
     /// Add threads from a sprite to the program.
     /// This _moves_ the threads out of the sprite.
-    fn add_threads(&mut self, mut threads: Vec<Thread>) {
+    fn add_threads(&mut self, mut threads: Vec<Thread<'program>>)
+    where
+        'program: 'spriteinscript,
+        'spriteinscript: 'program,
+    {
         // self.threads.append(&mut sprite.blocks);
         self.threads.append(&mut threads)
     }
 
-    fn add_all_threads(&mut self) {
+    fn add_all_threads(&mut self)
+    where
+        'program: 'spriteinscript,
+        'spriteinscript: 'program,
+    {
         for object in &mut self.objects {
             self.threads.append(&mut object.blocks);
         }
     }
 
-    fn add_object(&mut self, object: Sprite) {
+    fn add_object(&mut self, object: Sprite<'program>) {
         self.objects.push(object);
     }
 }
 
-enum Target {
-    Sprite {
-        /// Whether the sprite is visibile.  Defaults to true.
-        visible: bool,
-        /// The x-coordinate.  Defaults to 0.
-        x: f32,
-        /// The y-coordinate.  Defaults to 0.
-        y: f32,
-        /// The sprite's size, as a percentage.  Defaults to 100.
-        size: f32,
-        /// The direction of the sprite in degrees clockwise from up.  Defaults to 90.
-        direction: f32,
-        /// Whether the sprite is draggable.  Defaults to false.
-        draggable: bool,
-        /// The rotation style.
-        rotation_style: RotationStyle,
-        /// The name of the sprite.
-        name: String,
-        /// The blocks in the sprite.
-        /// This is currently only 1 stack of blocks,
-        /// but this should change soon.
-        blocks: Vec<Thread>,
-        /// A list of variables for the sprite
-        variables: HashMap<String, Value>,
-    },
-    Stage {
-        /// The tempo, in BPM.
-        tempo: i32,
-        /// Determines if video is on or off.
-        video_state: VideoState,
-        /// The video transparency  Defaults to 50.  This has no effect if `videoState`
-        /// is off or the project does not use an exptension with video input.
-        video_transparency: i32,
-        /// The text to speech language.  Defaults to the editor language.
-        text_to_speech_language: String,
-        variables: HashMap<String, Value>,
-    },
-}
+// enum Target {
+//     Sprite {
+//         /// Whether the sprite is visibile.  Defaults to true.
+//         visible: bool,
+//         /// The x-coordinate.  Defaults to 0.
+//         x: f32,
+//         /// The y-coordinate.  Defaults to 0.
+//         y: f32,
+//         /// The sprite's size, as a percentage.  Defaults to 100.
+//         size: f32,
+//         /// The direction of the sprite in degrees clockwise from up.  Defaults to 90.
+//         direction: f32,
+//         /// Whether the sprite is draggable.  Defaults to false.
+//         draggable: bool,
+//         /// The rotation style.
+//         rotation_style: RotationStyle,
+//         /// The name of the sprite.
+//         name: String,
+//         /// The blocks in the sprite.
+//         /// This is currently only 1 stack of blocks,
+//         /// but this should change soon.
+//         blocks: Vec<Thread>,
+//         /// A list of variables for the sprite
+//         variables: HashMap<String, Value>,
+//     },
+//     Stage {
+//         /// The tempo, in BPM.
+//         tempo: i32,
+//         /// Determines if video is on or off.
+//         video_state: VideoState,
+//         /// The video transparency  Defaults to 50.  This has no effect if `videoState`
+//         /// is off or the project does not use an exptension with video input.
+//         video_transparency: i32,
+//         /// The text to speech language.  Defaults to the editor language.
+//         text_to_speech_language: String,
+//         variables: HashMap<String, Value>,
+//     },
+// }
 
-impl Target {
-    // fn new(&self) -> Self;
-    fn set_x(&mut self, xin: f32) {
-        match self {
-            Target::Sprite { ref mut x, .. } => *x = xin,
-            Target::Stage { .. } => {}
-        }
-    }
-    fn set_y(&mut self, yin: f32) {
-        match self {
-            Target::Sprite { ref mut y, .. } => *y = yin,
-            Target::Stage { .. } => {}
-        }
-    }
-    fn get_x(&self) -> f32 {
-        // TODO document case for stage.
-        match self {
-            Target::Sprite { x, .. } => *x,
-            _ => 0.0,
-        }
-    }
-    fn get_y(&self) -> f32 {
-        match self {
-            Target::Sprite { y, .. } => *y,
-            _ => 0.0,
-        }
-    }
-    fn go_to(&mut self, x: f32, y: f32) {
-        self.set_x(x);
-        self.set_y(y);
-    }
-    fn change_x_by(&mut self, x: f32) {
-        self.set_x(self.get_x() + x);
-    }
-    fn change_y_by(&mut self, y: f32) {
-        self.set_y(self.get_y() + y);
-    }
-    fn say(&self, text: String) {
-        println!("{}", text);
-    }
-    fn direction(&self) -> f32 {
-        match self {
-            Self::Sprite { direction, .. } => *direction,
-            _ => 0.0,
-        }
-    }
-    fn point_direction(&mut self, direction_in: f32) {
-        match self {
-            Self::Sprite { direction, .. } => *direction = direction_in,
-            Self::Stage { .. } => {}
-        }
-    }
-    fn set_rotation_style(&mut self, style: RotationStyle) {
-        match self {
-            Self::Sprite { rotation_style, .. } => *rotation_style = style,
-            Self::Stage { .. } => {}
-        }
-    }
-    fn move_steps(&mut self, steps: f32) {
-        let radians = self.direction() * PI / 180.0;
-        let dx = steps * radians.cos();
-        let dy = steps * radians.sin();
-        self.go_to(self.get_x() + dx, self.get_y() + dy);
-    }
-    fn turn_left(&mut self, degrees: f32) {
-        self.point_direction(self.direction() - degrees);
-    }
-    fn turn_right(&mut self, degrees: f32) {
-        self.point_direction(self.direction() + degrees);
-    }
-    fn get_variable(&self, id: String) -> Option<&Value> {
-        // TODO implement
-        unimplemented!();
-        //None
-    }
-    fn set_variable(&mut self, id: String, value: &mut Value) {}
-    fn change_variable(&mut self, id: String, amount: f32) {
-        // self.set_variable(id, self.get_variable(id).unwrap() + amount);
-    }
-    fn generate_random(&self, from: i32, to: i32) -> i32 {
-        let mut rng = rand::thread_rng();
-        return rng.gen_range(from..to);
-    }
-}
+// impl Target {
+//     // fn new(&self) -> Self;
+//     fn set_x(&mut self, xin: f32) {
+//         match self {
+//             Target::Sprite { ref mut x, .. } => *x = xin,
+//             Target::Stage { .. } => {}
+//         }
+//     }
+//     fn set_y(&mut self, yin: f32) {
+//         match self {
+//             Target::Sprite { ref mut y, .. } => *y = yin,
+//             Target::Stage { .. } => {}
+//         }
+//     }
+//     fn get_x(&self) -> f32 {
+//         // TODO document case for stage.
+//         match self {
+//             Target::Sprite { x, .. } => *x,
+//             _ => 0.0,
+//         }
+//     }
+//     fn get_y(&self) -> f32 {
+//         match self {
+//             Target::Sprite { y, .. } => *y,
+//             _ => 0.0,
+//         }
+//     }
+//     fn go_to(&mut self, x: f32, y: f32) {
+//         self.set_x(x);
+//         self.set_y(y);
+//     }
+//     fn change_x_by(&mut self, x: f32) {
+//         self.set_x(self.get_x() + x);
+//     }
+//     fn change_y_by(&mut self, y: f32) {
+//         self.set_y(self.get_y() + y);
+//     }
+//     fn say(&self, text: String) {
+//         println!("{}", text);
+//     }
+//     fn direction(&self) -> f32 {
+//         match self {
+//             Self::Sprite { direction, .. } => *direction,
+//             _ => 0.0,
+//         }
+//     }
+//     fn point_direction(&mut self, direction_in: f32) {
+//         match self {
+//             Self::Sprite { direction, .. } => *direction = direction_in,
+//             Self::Stage { .. } => {}
+//         }
+//     }
+//     fn set_rotation_style(&mut self, style: RotationStyle) {
+//         match self {
+//             Self::Sprite { rotation_style, .. } => *rotation_style = style,
+//             Self::Stage { .. } => {}
+//         }
+//     }
+//     fn move_steps(&mut self, steps: f32) {
+//         let radians = self.direction() * PI / 180.0;
+//         let dx = steps * radians.cos();
+//         let dy = steps * radians.sin();
+//         self.go_to(self.get_x() + dx, self.get_y() + dy);
+//     }
+//     fn turn_left(&mut self, degrees: f32) {
+//         self.point_direction(self.direction() - degrees);
+//     }
+//     fn turn_right(&mut self, degrees: f32) {
+//         self.point_direction(self.direction() + degrees);
+//     }
+//     fn get_variable(&self, id: String) -> Option<&Value> {
+//         // TODO implement
+//         unimplemented!();
+//         //None
+//     }
+//     fn set_variable(&mut self, id: String, value: &mut Value) {}
+//     fn change_variable(&mut self, id: String, amount: f32) {
+//         // self.set_variable(id, self.get_variable(id).unwrap() + amount);
+//     }
+//     fn generate_random(&self, from: i32, to: i32) -> i32 {
+//         let mut rng = rand::thread_rng();
+//         return rng.gen_range(from..to);
+//     }
+// }
