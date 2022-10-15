@@ -1,13 +1,24 @@
+#![allow(
+    unused_imports,
+    unused_mut,
+    unused_variables,
+    dead_code,
+    non_snake_case
+)]
+
 extern crate rand;
-use genawaiter::rc::gen;
-use genawaiter::yield_;
+use genawaiter::rc::{gen, Co};
+use genawaiter::{yield_, GeneratorState};
 use rand::Rng;
+use std::pin::Pin;
 use std::{
+    boxed::Box,
     collections::HashMap,
     f32::consts::PI,
     future::{Future, IntoFuture},
 };
 
+#[derive(Clone)]
 pub enum RotationStyle {
     AllAround,
     LeftRight,
@@ -59,6 +70,7 @@ impl VideoState {
 /// A value, for a variable, list, or something else.
 ///
 /// This can represent either a number or a string.
+#[derive(Clone)]
 enum Value {
     Num(f32),
     String(String),
@@ -247,7 +259,8 @@ trait OldTarget {
 //     }
 // }
 
-struct Sprite<'a> {
+#[derive(Clone)]
+struct Sprite {
     /// Whether the sprite is visibile.  Defaults to true.
     visible: bool,
     /// The x-coordinate.  Defaults to 0.
@@ -267,9 +280,10 @@ struct Sprite<'a> {
     /// The blocks in the sprite.
     /// This is currently only 1 stack of blocks,
     /// but this should change soon.
-    blocks: Vec<Thread<'a>>,
+    // blocks: Vec<Thread<'a>>,
     /// A list of variables for the sprite
     variables: HashMap<String, Value>,
+    costume: usize,
 }
 
 fn move_steps(object: Option<&mut Sprite>, steps: f32) {
@@ -278,6 +292,13 @@ fn move_steps(object: Option<&mut Sprite>, steps: f32) {
         let radians = uo.direction * PI / 180.0;
         uo.x += steps * radians.cos();
         uo.y += steps * radians.sin();
+    }
+}
+
+fn set_costume(object: Option<&mut Sprite>, globalCostume: &mut usize, costume: usize) {
+    match object {
+        Some(sprite) => sprite.costume = costume,
+        None => *globalCostume = costume,
     }
 }
 
@@ -312,41 +333,57 @@ impl Future for EmptyFuture {
     }
 }
 
-/// A thread object.
-struct Thread<'a> {
-    // function: fn(object: Option<&mut Sprite>),
-    // function: genawaiter::rc::Gen<(), Option<&'a mut Sprite>, impl Future<Output = ()>>,
-    function: genawaiter::rc::Gen<(), Option<&'a mut Sprite<'a>>, EmptyFuture>,
-    // object: &mut Sprite,
+struct SpriteFuture {}
 
-    // The object that this thread works on.  The number represents the index
-    // of the object in the program vector.
-    obj_index: usize,
+/// A thread object.
+struct Thread<T: Future> {
+    // function: fn(object: Option<&mut Sprite>),
+    // function: genawaiter::rc::Gen<(), Option<Sprite>, Pin<Box<dyn Future<Output = ()>>>>,
+    function: genawaiter::rc::Gen<Option<Sprite>, Option<Sprite>, T>,
+    // function: genawaiter::rc::Gen<Option<Sprite>, Option<Sprite>, EmptyFuture>,
+    // object: &mut Sprite,
+    /// The object that this thread works on. The number represents the index of
+    /// the object in the program vector. If this is None, it represents the
+    /// stage.
+    obj_index: Option<usize>,
+    /// Whether or not the thread is complete.  If this is true, the thread
+    /// is ok to be deleted.
+    complete: bool,
 }
 
 /// The main project class.  This is in charge of running threads and
 /// redrawing the screen.
-struct Program<'spriteinscript, 'program> {
-    threads: Vec<Thread<'spriteinscript>>,
-    objects: Vec<Sprite<'program>>,
+struct Program<T: Future> {
+    threads: Vec<Thread<T>>,
+    objects: Vec<Sprite>,
 }
 
-impl<'spriteinscript, 'program> Program<'spriteinscript, 'program> {
+impl<T: Future> Program<T> {
     /// Run 1 tick
-    fn tick<'mutself>(&'mutself mut self)
-    where
-        'spriteinscript: 'program,
-        'mutself: 'spriteinscript,
-    {
-        for thread in &mut self.threads {
-            // (thread.function)(&mut thread.object);
-            // (thread.function)(Some(&mut self.objects[thread.obj_index]))
-            {
-                thread
+    fn tick(&mut self) {
+        for (i, thread) in &mut self.threads.iter_mut().enumerate() {
+            let returned = match thread.obj_index {
+                Some(obj_index_unwrapped) => thread
                     .function
-                    .resume_with(Some(&mut self.objects[thread.obj_index]));
+                    .resume_with(Some(self.objects[obj_index_unwrapped].clone())),
+
+                None => thread.function.resume_with(None),
+            };
+
+            match returned {
+                GeneratorState::Yielded(yielded_sprite) => {
+                    if let Some(y) = yielded_sprite {
+                        if let Some(obj_index_unwrapped) = thread.obj_index {
+                            self.objects[obj_index_unwrapped] = y
+                        }
+                    }
+                }
+                GeneratorState::Complete(x) => thread.complete = true,
             }
         }
+
+        // remove all threads that are complete.
+        self.threads.retain(|x| !x.complete);
     }
     fn new() -> Self {
         return Program {
@@ -357,27 +394,18 @@ impl<'spriteinscript, 'program> Program<'spriteinscript, 'program> {
 
     /// Add threads from a sprite to the program.
     /// This _moves_ the threads out of the sprite.
-    fn add_threads(&mut self, mut threads: Vec<Thread<'program>>)
-    where
-        'program: 'spriteinscript,
-        'spriteinscript: 'program,
-    {
+    fn add_threads(&mut self, mut threads: Vec<Thread<T>>) {
         // self.threads.append(&mut sprite.blocks);
         self.threads.append(&mut threads)
     }
 
-    fn add_all_threads(&mut self)
-    where
-        'program: 'spriteinscript,
-        'spriteinscript: 'program,
-    {
-        for object in &mut self.objects {
-            self.threads.append(&mut object.blocks);
-        }
+    fn add_object(&mut self, object: Sprite) {
+        self.objects.push(object);
     }
 
-    fn add_object(&mut self, object: Sprite<'program>) {
-        self.objects.push(object);
+    /// Add a thread.
+    fn add_thread(&mut self, thread: Thread<T>) {
+        self.threads.push(thread);
     }
 }
 

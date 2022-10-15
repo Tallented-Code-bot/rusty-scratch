@@ -35,7 +35,7 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
     blocks.insert("motion_changexby", "object.change_x_by(DXf32)");
     blocks.insert("motion_changeyby", "object.change_y_by(DYf32);");
     // blocks.insert("motion_movesteps", "object.move_steps(STEPSf32);");
-    blocks.insert("motion_movesteps", "move_steps(object,STEPSf32);");
+    blocks.insert("motion_movesteps", "move_steps(object.as_mut(),STEPSf32);");
     blocks.insert("motion_turnleft", "object.turn_left(DEGREESf32)");
     blocks.insert("motion_turnright", "object.turn_right(DEGREESf32)");
     blocks.insert("motion_gotoxy", "object.go_to(Xf32,Yf32)");
@@ -76,7 +76,7 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
 fn main() {
     // let file = fs::read_to_string("./project.json").expect("Could not read file");
     // let project = get_project(String::from("./test_variables.sb3")).unwrap(); // TODO add proper error handling
-    let project = get_project_online(720925925).unwrap(); // TODO add proper error handling
+    let project = get_project_online(746135268).unwrap(); // TODO add proper error handling
     std::fs::write("project.json", project.to_string());
     let block_reference = make_blocks_lookup();
     create_project(); // create a new cargo project
@@ -105,7 +105,7 @@ fn main() {
             // (Sprite1.blocks.function)(&mut Sprite1);
             
             //program.add_threads(Sprite1.blocks);
-            program.add_all_threads();
+            //program.add_all_threads();
 
             // tick 3 times for testing
             program.tick();
@@ -292,8 +292,9 @@ fn create_hat(
     // let name=format!{}
     let function = format!(
         "gen!({{
-let object:Option<&mut Sprite> =yield_!(());
+let mut object:Option<Sprite> =yield_!(None);
 {}
+yield_!(object);
 }})",
         contents.join("\n")
     );
@@ -314,7 +315,7 @@ fn create_all_hats(
         match hat {
             Ok(x) => contents.push_str(
                 format!(
-                    "Thread{{function:{},obj_index:program.objects.len()}}",
+                    "Thread{{function:{},obj_index:Some(program.objects.len()),complete:false}}",
                     x.as_str()
                 )
                 .as_str(),
@@ -361,6 +362,7 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
             let mut video_transparency={videoTransparency};
             let mut text_to_speech_language=String::from(\"{textToSpeechLanguage}\");
             let mut global_variables:HashMap<String,Value> =HashMap::new();
+            let mut currentCostume:usize=0;
 ",
             name = target["name"],
             tempo = target["tempo"],
@@ -392,9 +394,10 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
                 draggable:{draggable},
                 rotation_style:{rotationStyle},
                 name:\"{name}\".to_string(),
-                blocks:vec![ {function} ],
                 variables:HashMap::new(),
+                costume:0,
             }};
+            program.add_thread({function});
             program.add_object({name});",
             name = target["name"],
             visible = target["visible"],
