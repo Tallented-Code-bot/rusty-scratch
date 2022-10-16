@@ -43,6 +43,7 @@ impl RotationStyle {
     }
 }
 
+#[derive(Clone)]
 pub enum VideoState {
     On,
     Off,
@@ -302,6 +303,14 @@ fn set_costume(object: Option<&mut Sprite>, globalCostume: &mut usize, costume: 
     }
 }
 
+/// Set the costume of a target.
+fn set_costume_better(object: &mut Target, costume: usize) {
+    match &mut object.sprite {
+        Some(x) => x.costume = costume,
+        None => object.stage.current_costume = costume,
+    }
+}
+
 fn say(speech: String) {
     println!("{}", speech);
 }
@@ -339,7 +348,7 @@ struct SpriteFuture {}
 struct Thread<T: Future> {
     // function: fn(object: Option<&mut Sprite>),
     // function: genawaiter::rc::Gen<(), Option<Sprite>, Pin<Box<dyn Future<Output = ()>>>>,
-    function: genawaiter::rc::Gen<Option<Sprite>, Option<Sprite>, T>,
+    function: genawaiter::rc::Gen<Option<Target>, Target, T>,
     // function: genawaiter::rc::Gen<Option<Sprite>, Option<Sprite>, EmptyFuture>,
     // object: &mut Sprite,
     /// The object that this thread works on. The number represents the index of
@@ -360,21 +369,30 @@ struct Program<T: Future> {
 
 impl<T: Future> Program<T> {
     /// Run 1 tick
-    fn tick(&mut self) {
+    fn tick(&mut self, stage: &mut Stage) {
         for (i, thread) in &mut self.threads.iter_mut().enumerate() {
             let returned = match thread.obj_index {
-                Some(obj_index_unwrapped) => thread
-                    .function
-                    .resume_with(Some(self.objects[obj_index_unwrapped].clone())),
+                Some(obj_index_unwrapped) => thread.function.resume_with(Target::new(
+                    self.objects[obj_index_unwrapped].clone(),
+                    stage.clone(),
+                )),
 
-                None => thread.function.resume_with(None),
+                None => thread
+                    .function
+                    .resume_with(Target::new_stage(stage.clone())),
             };
 
             match returned {
                 GeneratorState::Yielded(yielded_sprite) => {
-                    if let Some(y) = yielded_sprite {
-                        if let Some(obj_index_unwrapped) = thread.obj_index {
-                            self.objects[obj_index_unwrapped] = y
+                    if let Some(zz) = yielded_sprite {
+                        match zz.sprite {
+                            Some(y) => {
+                                if let Some(obj_index_unwrapped) = thread.obj_index {
+                                    self.objects[obj_index_unwrapped] = y;
+                                    *stage = zz.stage;
+                                }
+                            }
+                            None => *stage = zz.stage,
                         }
                     }
                 }
@@ -385,6 +403,7 @@ impl<T: Future> Program<T> {
         // remove all threads that are complete.
         self.threads.retain(|x| !x.complete);
     }
+
     fn new() -> Self {
         return Program {
             threads: Vec::new(),
@@ -406,6 +425,54 @@ impl<T: Future> Program<T> {
     /// Add a thread.
     fn add_thread(&mut self, thread: Thread<T>) {
         self.threads.push(thread);
+    }
+}
+
+/// This is the stage object.
+#[derive(Clone)]
+struct Stage {
+    /// The tempo, in BPM.
+    tempo: i32,
+    /// Determines if video is on or off.
+    video_state: VideoState,
+    /// The video transparency  Defaults to 50.  This has no effect if `videoState`
+    /// is off or the project does not use an exptension with video input.
+    video_transparency: i32,
+    /// The text to speech language.  Defaults to the editor language.
+    text_to_speech_language: String,
+    variables: HashMap<String, Value>,
+    current_costume: usize,
+}
+
+/// This is a target.
+///
+/// A target is a combination of a sprite(or not) and the stage. If the sprite
+/// is absent(None), the target is assumed to be the stage.
+struct Target {
+    /// The stage.
+    ///
+    /// This is an owned variable, meaning it is a copy of the real stage. The
+    /// real stage should be set to this copy when the target is returned from a
+    /// thread.
+    stage: Stage,
+    sprite: Option<Sprite>,
+}
+
+impl Target {
+    /// Create a new sprite target.
+    fn new(sprite: Sprite, stage: Stage) -> Self {
+        Self {
+            sprite: Some(sprite),
+            stage,
+        }
+    }
+
+    /// Create a new stage target.
+    fn new_stage(stage: Stage) -> Self {
+        Self {
+            sprite: None,
+            stage,
+        }
     }
 }
 

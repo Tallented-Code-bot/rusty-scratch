@@ -108,9 +108,9 @@ fn main() {
             //program.add_all_threads();
 
             // tick 3 times for testing
-            program.tick();
-            program.tick();
-            program.tick();
+            program.tick(&mut Stage);
+            program.tick(&mut Stage);
+            program.tick(&mut Stage);
         }}
         ",
         lib = lib,
@@ -350,19 +350,20 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
     // If the target is the stage
     if target["isStage"].as_bool().unwrap() {
         return format!(
-            "//let mut {name}=Target::Stage{{
-             //   tempo:{tempo},
-             //   video_state:{videoState},
-             //   video_transparency:{videoTransparency},
-             //   text_to_speech_language:String::from(\"{textToSpeechLanguage}\"),
-             //   variables:HashMap::new(),
-            //}};
-            let mut tempo={tempo};
-            let mut video_state={videoState};
-            let mut video_transparency={videoTransparency};
-            let mut text_to_speech_language=String::from(\"{textToSpeechLanguage}\");
-            let mut global_variables:HashMap<String,Value> =HashMap::new();
-            let mut currentCostume:usize=0;
+            "let mut {name}=Stage{{
+                tempo:{tempo},
+                video_state:{videoState},
+                video_transparency:{videoTransparency},
+                text_to_speech_language:String::from(\"{textToSpeechLanguage}\"),
+                variables:HashMap::new(),
+                current_costume:0,
+            }};
+            //let mut tempo={tempo};
+            //let mut video_state={videoState};
+            //let mut video_transparency={videoTransparency};
+            //let mut text_to_speech_language=String::from(\"{textToSpeechLanguage}\");
+            //let mut global_variables:HashMap<String,Value> =HashMap::new();
+            //let mut currentCostume:usize=0;
 ",
             name = target["name"],
             tempo = target["tempo"],
