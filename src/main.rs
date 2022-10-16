@@ -180,8 +180,14 @@ fn get_block(
 ) -> String {
     let (id, data) = block;
     let opcode = data["opcode"].to_string();
-    println!("{}", block.1);
-    let mut function = block_reference.get(&opcode as &str).unwrap().to_string(); // TODO better error handling
+    // println!("{}", block.1);
+    let mut function = match block_reference.get(&opcode as &str) {
+        Some(x) => x.to_string(),
+        None => {
+            println!("Error: unknown block (opcode {})", opcode);
+            panic!();
+        }
+    };
 
     // iterate over each input
     for input in data["inputs"].entries() {
@@ -315,7 +321,7 @@ fn create_all_hats(
         match hat {
             Ok(x) => contents.push_str(
                 format!(
-                    "Thread{{function:{},obj_index:Some(program.objects.len()),complete:false}}",
+                    "program.add_thread(Thread{{function:{},obj_index:Some(program.objects.len()),complete:false}});\n",
                     x.as_str()
                 )
                 .as_str(),
@@ -349,6 +355,7 @@ fn write_to_file(
 fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) -> String {
     // If the target is the stage
     if target["isStage"].as_bool().unwrap() {
+        let function = create_all_hats(&target["blocks"], block_reference).unwrap();
         return format!(
             "let mut {name}=Stage{{
                 tempo:{tempo},
@@ -364,6 +371,7 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
             //let mut text_to_speech_language=String::from(\"{textToSpeechLanguage}\");
             //let mut global_variables:HashMap<String,Value> =HashMap::new();
             //let mut currentCostume:usize=0;
+            {function}
 ",
             name = target["name"],
             tempo = target["tempo"],
@@ -398,7 +406,7 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
                 variables:HashMap::new(),
                 costume:0,
             }};
-            program.add_thread({function});
+            {function}
             program.add_object({name});",
             name = target["name"],
             visible = target["visible"],
