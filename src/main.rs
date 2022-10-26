@@ -32,17 +32,24 @@ pub mod thread;
 /// ```
 fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
     let mut blocks: HashMap<&str, &str> = HashMap::new();
-    blocks.insert("motion_setx", "object.set_x(Xf32);");
-    blocks.insert("motion_sety", "object.set_y(Yf32)");
-    blocks.insert("motion_changexby", "object.change_x_by(DXf32)");
-    blocks.insert("motion_changeyby", "object.change_y_by(DYf32);");
+    blocks.insert("motion_setx", "set_x(&mut object,Xf32);");
+    blocks.insert("motion_sety", "set_y(&mut object,Yf32)");
+    blocks.insert("motion_changexby", "change_x_by(&mut object,DXf32)");
+    blocks.insert("motion_changeyby", "change_y_by(&mut object,DYf32);");
     // blocks.insert("motion_movesteps", "object.move_steps(STEPSf32);");
-    blocks.insert("motion_movesteps", "move_steps(object.as_mut(),STEPSf32);");
-    blocks.insert("motion_turnleft", "object.turn_left(DEGREESf32)");
-    blocks.insert("motion_turnright", "object.turn_right(DEGREESf32)");
-    blocks.insert("motion_gotoxy", "object.go_to(Xf32,Yf32)");
+    blocks.insert("motion_movesteps", "move_steps(&mut object,STEPSf32);");
+    blocks.insert("motion_turnleft", "turn_left(&mut object,DEGREESf32)");
+    blocks.insert("motion_turnright", "turn_right(&mut object,DEGREESf32)");
+    blocks.insert("motion_gotoxy", "go_to(&mut object,Xf32,Yf32)");
+    blocks.insert(
+        "motion_pointindirection",
+        "point_in_direction(&mut object,DIRECTIONf32)",
+    );
     blocks.insert("event_whenflagclicked", "flag_clicked();");
-    blocks.insert("control_repeat", "for x in 0..TIMES{SUBSTACK}"); //TODO add yielding
+    blocks.insert(
+        "control_repeat",
+        "for z in 0..TIMES{SUBSTACK\nobject=yield_!(Some(object));}",
+    ); //TODO add yielding
     blocks.insert("control_forever", "loop{SUBSTACK}"); //TODO add yielding
     blocks.insert("control_if", "if CONDITION {SUBSTACK}");
     blocks.insert("control_if_else", "if CONDITION {SUBSTACK}else{SUBSTACK2}");

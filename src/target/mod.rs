@@ -336,10 +336,57 @@ impl Costume {
 
 fn move_steps(object: &mut Target, steps: f32) {
     //unwrap option
-    if let Some(uo) = object {
-        let radians = uo.direction * PI / 180.0;
+    if let Some(uo) = &mut object.sprite {
+        let radians = (90.0 - uo.direction) * PI / 180.0;
         uo.x += steps * radians.cos();
         uo.y += steps * radians.sin();
+    }
+}
+
+fn go_to(object: &mut Target, x: f32, y: f32) {
+    if let Some(uo) = &mut object.sprite {
+        uo.x = x;
+        uo.y = y;
+    }
+}
+
+fn turn_right(object: &mut Target, degrees: f32) {
+    if let Some(uo) = &mut object.sprite {
+        uo.direction += degrees;
+    }
+}
+
+fn turn_left(object: &mut Target, degrees: f32) {
+    if let Some(uo) = &mut object.sprite {
+        uo.direction -= degrees;
+    }
+}
+
+fn point_in_direction(object: &mut Target, degrees: f32) {
+    if let Some(uo) = &mut object.sprite {
+        uo.direction = degrees;
+    }
+}
+
+fn set_x(object: &mut Target, x: f32) {
+    if let Some(uo) = &mut object.sprite {
+        uo.x = x;
+    }
+}
+fn set_y(object: &mut Target, y: f32) {
+    if let Some(uo) = &mut object.sprite {
+        uo.y = y;
+    }
+}
+
+fn change_x_by(object: &mut Target, x: f32) {
+    if let Some(uo) = &mut object.sprite {
+        uo.x += x;
+    }
+}
+fn change_y_by(object: &mut Target, y: f32) {
+    if let Some(uo) = &mut object.sprite {
+        uo.y += y;
     }
 }
 
