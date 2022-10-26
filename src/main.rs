@@ -1,12 +1,14 @@
 use crate::target::{RotationStyle, VideoState};
 use json::{self, JsonValue};
+use opengl_graphics::CreateTexture;
 use reqwest;
+use resvg;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
 use std::fs::File;
-use std::io;
 use std::io::Read;
+use std::io::{self, Cursor};
 use std::process::{Command, Output};
 use zip;
 
@@ -90,27 +92,47 @@ fn main() {
 
     for target in project["targets"].members() {
         targets.push(generate_target(target, &block_reference));
+        get_target_assets(target);
     }
 
     let output = format!(
         "
-// This is the static Sprite, Stage, and block definitions
+        // This is the static Sprite, Stage, and block definitions
         {lib}
         //########################################
         // Below this is generated code.
 
         fn main(){{
+            let opengl = OpenGL::V3_2;
+
+            // Create a glutin window
+            let mut window: Window = WindowSettings::new(\"rusty-scratch\",[200,200])
+                .graphics_api(opengl)
+                .exit_on_esc(true)
+                .build()
+                .unwrap();
+
             let mut program=Program::new();
+
             {targets}
             // (Sprite1.blocks.function)(&mut Sprite1);
             
             //program.add_threads(Sprite1.blocks);
             //program.add_all_threads();
 
-            // tick 3 times for testing
-            program.tick(&mut Stage);
-            program.tick(&mut Stage);
-            program.tick(&mut Stage);
+
+            let mut events = Events::new(EventSettings::new());
+            events.set_max_fps(30);
+            events.set_ups(30);
+            while let Some(e) = events.next(&mut window){{
+                if let Some(args) = e.render_args(){{
+                    program.render(&args,&Stage);
+                }}
+                if let Some(args) = e.update_args(){{
+                    program.tick(&mut Stage);
+                }}
+            }}
+
         }}
         ",
         lib = lib,
@@ -298,9 +320,9 @@ fn create_hat(
     // let name=format!{}
     let function = format!(
         "gen!({{
-let mut object:Option<Sprite> =yield_!(None);
+let mut object:Target =yield_!(None);
 {}
-yield_!(object);
+yield_!(Some(object));
 }})",
         contents.join("\n")
     );
@@ -363,7 +385,8 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
                 video_transparency:{videoTransparency},
                 text_to_speech_language:String::from(\"{textToSpeechLanguage}\"),
                 variables:HashMap::new(),
-                current_costume:0,
+                costume:0,
+                costumes:Vec::new(),
             }};
             //let mut tempo={tempo};
             //let mut video_state={videoState};
@@ -372,6 +395,7 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
             //let mut global_variables:HashMap<String,Value> =HashMap::new();
             //let mut currentCostume:usize=0;
             {function}
+            {costume}
 ",
             name = target["name"],
             tempo = target["tempo"],
@@ -379,7 +403,8 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
                 .unwrap()
                 .to_str(),
             textToSpeechLanguage = target["textToSpeechLanguage"],
-            videoTransparency = target["videoTransparency"]
+            videoTransparency = target["videoTransparency"],
+            costume = target_costumes(target),
         );
     } else {
         /* let function = create_hat(
@@ -405,8 +430,10 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
                 name:\"{name}\".to_string(),
                 variables:HashMap::new(),
                 costume:0,
+                costumes:Vec::new(),
             }};
             {function}
+            {costumes}
             program.add_object({name});",
             name = target["name"],
             visible = target["visible"],
@@ -418,6 +445,7 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
             rotationStyle = RotationStyle::from_str(target["rotationStyle"].as_str().unwrap())
                 .unwrap()
                 .to_str(),
+            costumes = target_costumes(target),
         );
     }
 }
@@ -456,9 +484,96 @@ fn create_project() -> Result<(), io::Error> {
     [dependencies]
     rand=\"0.8.5\"
     genawaiter=\"0.99.1\"
+    piston = \"0.53.0\"
+    piston2d-graphics = \"0.42.0\"
+    pistoncore-glutin_window = \"0.69.0\"
+    piston2d-opengl_graphics = \"0.81.0\"
+    resvg = \"0.24.0\"
     ";
 
     fs::write("output/Cargo.toml", toml)?;
 
     return Ok(());
+}
+
+/// Download the assets for a target.
+fn get_target_assets(target: &JsonValue) {
+    // create the asset directory
+    fs::create_dir_all(format!("output/assets/{}", target["name"])).unwrap();
+
+    // iterate through all costumes
+    for costume in target["costumes"].members() {
+        let response = reqwest::blocking::get(format!(
+            "https://assets.scratch.mit.edu/{}",
+            costume["md5ext"]
+        ))
+        .expect("Could not download asset file");
+
+        let mut file = std::fs::File::create(format!(
+            "output/assets/{}/{}.{}",
+            target["name"], costume["name"], costume["dataFormat"]
+        ))
+        .unwrap();
+
+        let mut content = Cursor::new(response.bytes().unwrap());
+        std::io::copy(&mut content, &mut file).unwrap();
+    }
+}
+
+/// Get all the target costumes
+fn target_costumes(target: &JsonValue) -> String {
+    let mut to_return = String::new();
+    let name = &target["name"];
+    for costume in target["costumes"].members() {
+        let costumename = &costume["name"];
+        let format = &costume["dataFormat"];
+        let stage_or_sprite;
+        if target["isStage"].as_bool().unwrap() {
+            stage_or_sprite = "stage";
+        } else {
+            stage_or_sprite = "sprite";
+        }
+
+        // TODO handle png files properly
+        if format != "svg" {
+            continue;
+        }
+        to_return.push_str(&format!("program.add_costume_{stage_or_sprite}(
+                                        Costume::new(PathBuf::from(\"assets/{name}/{costumename}.{format}\"),1.0).unwrap(),
+                                        &mut {name}
+                                    );\n"));
+    }
+
+    return to_return;
+}
+
+/// Convert all the svg assets in a target to pngs.
+fn convert_svg_png(target: &JsonValue) {
+    use opengl_graphics::{CreateTexture, Format, Texture, TextureSettings};
+    use resvg::tiny_skia::{Pixmap, Transform};
+    use resvg::usvg::{FitTo, Options, Tree};
+
+    let paths = fs::read_dir(format!("output/assets/{}", target["name"])).unwrap();
+
+    for path in paths {
+        let tree = Tree::from_str(
+            &fs::read_to_string(path.unwrap().path()).unwrap(),
+            &Options::default().to_ref(),
+        )
+        .unwrap();
+        let fit_to = FitTo::Original;
+        let transform = Transform::default();
+        let mut pixmap = Pixmap::new(1, 1).unwrap();
+        let pixmapmut = pixmap.as_mut();
+
+        resvg::render(&tree, fit_to, transform, pixmapmut);
+
+        let texture = Texture::create(
+            &mut (),
+            Format::Rgba8,
+            pixmap.data(),
+            [pixmap.width(), pixmap.height()],
+            &TextureSettings::new(),
+        );
+    }
 }

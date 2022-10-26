@@ -11,3 +11,8 @@ zip = "0.6.2"
 reqwest = { version = "0.11.11", features = ["blocking"] }
 rand = "0.8.5"
 genawaiter = "0.99.1"
+piston = "0.53.0"
+piston2d-graphics = "0.42.0"
+pistoncore-glutin_window = "0.69.0"
+piston2d-opengl_graphics = "0.81.0"
+resvg = "0.24.0"

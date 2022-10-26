@@ -9,13 +9,22 @@
 extern crate rand;
 use genawaiter::rc::{gen, Co};
 use genawaiter::{yield_, GeneratorState};
+use glutin_window::GlutinWindow as Window;
+use graphics::types::{Matrix2d, Scalar};
+use graphics::{rectangle, Context, Image};
+use opengl_graphics::{GlGraphics, OpenGL, Texture, TextureSettings};
+use piston::event_loop::{EventLoop, EventSettings, Events};
+use piston::input::{RenderArgs, RenderEvent, UpdateArgs, UpdateEvent};
+use piston::window::WindowSettings;
 use rand::Rng;
+use std::fs;
 use std::pin::Pin;
 use std::{
     boxed::Box,
     collections::HashMap,
     f32::consts::PI,
     future::{Future, IntoFuture},
+    path::{Path, PathBuf},
 };
 
 #[derive(Clone)]
@@ -284,10 +293,48 @@ struct Sprite {
     // blocks: Vec<Thread<'a>>,
     /// A list of variables for the sprite
     variables: HashMap<String, Value>,
+    /// The current costume. This is an index to the costumes attribute, which
+    /// is itself an index!.
     costume: usize,
+    /// A list of paths for costumes. Each item is an index to the program
+    /// costume list.
+    costumes: Vec<usize>,
 }
 
-fn move_steps(object: Option<&mut Sprite>, steps: f32) {
+/// A costume or backdrop
+struct Costume {
+    name: String,
+    rotation_center_x: u32,
+    rotation_center_y: u32,
+    texture: Texture,
+    image: Image,
+}
+
+impl Costume {
+    fn new(path: PathBuf, scale: f32) -> Result<Self, &'static str> {
+        let texture = get_texture_from_path(path.clone(), scale)?;
+        let name = path.file_stem().unwrap().to_str().unwrap().to_string();
+
+        Ok(Self {
+            name,
+            rotation_center_x: 0,
+            rotation_center_y: 0,
+            texture,
+            image: Image::new(),
+        })
+    }
+
+    fn draw(&self, transform: Matrix2d, gl: &mut GlGraphics) {
+        self.image.draw(
+            &self.texture,
+            &graphics::draw_state::DrawState::default(),
+            transform,
+            gl,
+        )
+    }
+}
+
+fn move_steps(object: &mut Target, steps: f32) {
     //unwrap option
     if let Some(uo) = object {
         let radians = uo.direction * PI / 180.0;
@@ -307,7 +354,7 @@ fn set_costume(object: Option<&mut Sprite>, globalCostume: &mut usize, costume: 
 fn set_costume_better(object: &mut Target, costume: usize) {
     match &mut object.sprite {
         Some(x) => x.costume = costume,
-        None => object.stage.current_costume = costume,
+        None => object.stage.costume = costume,
     }
 }
 
@@ -365,6 +412,8 @@ struct Thread<T: Future> {
 struct Program<T: Future> {
     threads: Vec<Thread<T>>,
     objects: Vec<Sprite>,
+    gl: GlGraphics,
+    costumes: Vec<Costume>,
 }
 
 impl<T: Future> Program<T> {
@@ -408,7 +457,39 @@ impl<T: Future> Program<T> {
         return Program {
             threads: Vec::new(),
             objects: Vec::new(),
+            gl: GlGraphics::new(OpenGL::V3_2),
+            costumes: Vec::new(),
         };
+    }
+
+    /// Renders a red square.
+    fn render(&mut self, args: &RenderArgs, stage: &Stage) {
+        use graphics::*;
+
+        const GREEN: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
+        const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
+        const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+
+        let square = rectangle::square(00.0, 0.0, 100.0);
+        // let rotation: Scalar = 2.0;
+        let (x, y) = (args.window_size[0] / 2.0, args.window_size[1] / 2.0);
+
+        self.gl.draw(args.viewport(), |c, gl| {
+            // Clear the screen
+            clear(BLACK, gl);
+
+            self.costumes[stage.costumes[stage.costume]].draw(c.transform, gl);
+
+            // TODO sort by order
+            for object in &self.objects {
+                self.costumes[object.costumes[object.costume]].draw(
+                    c.transform
+                        .trans(240.0, 180.0)
+                        .trans(object.x.into(), <f32 as Into<f64>>::into(object.y * -1.0)),
+                    gl,
+                );
+            }
+        })
     }
 
     /// Add threads from a sprite to the program.
@@ -422,10 +503,55 @@ impl<T: Future> Program<T> {
         self.objects.push(object);
     }
 
+    /// Add a costume to the program
+    fn add_costume_sprite(&mut self, costume: Costume, sprite: &mut Sprite) {
+        sprite.costumes.push(self.costumes.len());
+        self.costumes.push(costume);
+    }
+
+    fn add_costume_stage(&mut self, costume: Costume, stage: &mut Stage) {
+        stage.costumes.push(self.costumes.len());
+        self.costumes.push(costume);
+    }
+
     /// Add a thread.
     fn add_thread(&mut self, thread: Thread<T>) {
         self.threads.push(thread);
     }
+}
+
+fn get_texture_from_path(
+    path: PathBuf,
+    scale: f32,
+) -> Result<opengl_graphics::Texture, &'static str> {
+    use opengl_graphics::{CreateTexture, Format, Texture, TextureSettings};
+    use resvg::tiny_skia::{Pixmap, Transform};
+    use resvg::usvg::{FitTo, Options, Tree};
+
+    let tree = Tree::from_str(
+        &fs::read_to_string(path).or(Err("Cannot read file"))?,
+        &Options::default().to_ref(),
+    )
+    .or(Err("Not a readable svg file"))?;
+
+    let fit_to = FitTo::Zoom(scale);
+    let transform = Transform::default();
+    let size = fit_to.fit_to(tree.size.to_screen_size()).unwrap();
+    let mut pixmap = Pixmap::new(size.width(), size.height()).ok_or("Could not create pixmap")?;
+    let pixmapmut = pixmap.as_mut();
+
+    resvg::render(&tree, fit_to, transform, pixmapmut);
+
+    let texture = Texture::create(
+        &mut (),
+        Format::Rgba8,
+        pixmap.data(),
+        [pixmap.width(), pixmap.height()],
+        &TextureSettings::new(),
+    )
+    .or(Err("Could not create texture"));
+
+    return texture;
 }
 
 /// This is the stage object.
@@ -441,7 +567,11 @@ struct Stage {
     /// The text to speech language.  Defaults to the editor language.
     text_to_speech_language: String,
     variables: HashMap<String, Value>,
-    current_costume: usize,
+    /// The current costume.  An index to the stage costumes list.
+    costume: usize,
+    /// The costumes in the stage. These are indexes to the list of costumes in
+    /// the program.
+    costumes: Vec<usize>,
 }
 
 /// This is a target.
