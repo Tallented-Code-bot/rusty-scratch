@@ -85,11 +85,11 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
 fn main() {
     // let file = fs::read_to_string("./project.json").expect("Could not read file");
     // let project = get_project(String::from("./test_variables.sb3")).unwrap(); // TODO add proper error handling
-    let project = get_project_online(746135268).unwrap(); // TODO add proper error handling
-    std::fs::write("project.json", project.to_string());
+    let project = get_project_online(759912461).expect("Could not fetch project"); // TODO add proper error handling
+    std::fs::write("project.json", project.to_string()).expect("Could not write to project.json");
     let block_reference = make_blocks_lookup();
-    create_project(); // create a new cargo project
-                      //510186917
+    create_project().expect("Could not create new rust project"); // create a new cargo project
+                                                                  //510186917
     let filename = "output/src/main.rs";
 
     // Get the library file to include
@@ -190,7 +190,8 @@ fn get_project(filename: String) -> Result<JsonValue, Box<dyn Error>> {
 /// Get an online scratch project.
 fn get_project_online(id: u32) -> Result<JsonValue, Box<dyn Error>> {
     // Create the project url.
-    let url = format!("https://projects.scratch.mit.edu/{}", id);
+    let token = fetch_project_token(id)?;
+    let url = format!("https://projects.scratch.mit.edu/{id}?token={token}");
 
     // Get the project (`fetch_sb3_file` creates a file called "project.json".
     // I have not yet figured out how to get the project assets.)
@@ -471,6 +472,24 @@ fn fetch_sb3_file(url: String) -> String {
     //response.copy_to(&mut out);
     // io::copy(&mut response,&mut out)?;
     return response.text().unwrap();
+}
+
+/// Get the project token for a scratch project.
+fn fetch_project_token(id: u32) -> Result<String, &'static str> {
+    let url = format!("https://api.scratch.mit.edu/projects/{id}");
+    let response = reqwest::blocking::get(url).or(Err("Could not get from api"))?;
+
+    let text = response.text().or(Err("Could not get text"))?;
+
+    let json = json::parse(&text).or(Err("Cannot parse json"))?;
+
+    let token = &json["project_token"];
+
+    if token.is_null() {
+        return Err("Token does not exist");
+    } else {
+        return Ok(token.to_string());
+    }
 }
 
 /// Formats the given filename with rustfmt.
