@@ -1,4 +1,4 @@
-use crate::target::{RotationStyle, VideoState};
+use crate::target::{RotationStyle, Value, VideoState};
 use json::{self, JsonValue};
 use opengl_graphics::CreateTexture;
 use reqwest;
@@ -48,7 +48,7 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
     blocks.insert("event_whenflagclicked", "flag_clicked();");
     blocks.insert(
         "control_repeat",
-        "for z in 0..TIMES{SUBSTACK\nobject=yield_!(Some(object));}",
+        "for z in 0..TIMES.into(){SUBSTACK\nobject=yield_!(Some(object));}",
     ); //TODO add yielding
     blocks.insert("control_forever", "loop{SUBSTACK}"); //TODO add yielding
     blocks.insert("control_if", "if CONDITION {SUBSTACK}");
@@ -56,9 +56,9 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
     blocks.insert("control_repeat_until", "while !CONDITION{SUBSTACK}"); //TODO add yielding
 
     // blocks.insert("looks_say", "object.say(String::from(\"MESSAGE\"));");
-    blocks.insert("looks_say", "say(String::from(\"MESSAGE\"));");
+    blocks.insert("looks_say", "say(MESSAGE);");
     blocks.insert("event_whenflagclicked", "");
-    blocks.insert("data_variable", "object.get_variable(VARIABLE)");
+    blocks.insert("data_variable", "get_variable(&object,VARIABLE)");
     blocks.insert(
         "data_setvariableto",
         "object.set_variable(String::from(\"VARIABLE\"),&mut Value::from(VALUEf32));",
@@ -232,12 +232,20 @@ fn get_block(
                 7 => function.replacen(input.0, &input.1[1][1].as_str().unwrap().to_string(), 1), // Integer
                 8 => function.replacen(input.0, &input.1[1][1].as_str().unwrap().to_string(), 1), // Angle
                 9 => function.replacen(input.0, input.1[1][1].as_str().unwrap(), 1), // Color
-                10 => function.replacen(input.0, input.1[1][1].as_str().unwrap(), 1), // String
+                10 => function.replacen(
+                    input.0,
+                    &*format!("String::from(\"{}\")", input.1[1][1].as_str().unwrap()),
+                    1,
+                ), // String
                 11 => todo!(),
                 12 => function.replacen(
                     // Variable
                     input.0,
-                    format!("object.get_variable({})", input.1[1][2].as_str().unwrap()).as_str(),
+                    format!(
+                        "get_variable(&object,\"{}\")",
+                        input.1[1][2].as_str().unwrap()
+                    )
+                    .as_str(),
                     1,
                 ),
                 13 => todo!(),
@@ -365,6 +373,41 @@ fn create_all_hats(
     return Ok(format!("{}", contents));
 }
 
+/// Get the variables from a target.
+///
+/// The string constructs a new HashMap with the variables
+/// in it.
+fn get_variables(target: &JsonValue) -> Result<String, &str> {
+    let mut to_return = String::from("HashMap::from([");
+    for (key, value) in target["variables"].entries() {
+        // cloud variables are not supported
+        if let Some(true) = value[2].as_bool() {
+            return Err("Does not support cloud variables");
+        }
+
+        // if the value is a string, include quotation marks                    v        v
+        if value[1].is_string() {
+            to_return.push_str(&*format!(
+                "(String::from(\"{key}\"),(String::from(\"{name}\"),Value::from(\"{value}\"))),",
+                name = value[0],
+                value = value[1]
+            ))
+        } else {
+            //otherwise don't include qotation marks.
+            to_return.push_str(&*format!(
+                "(String::from(\"{key}\"),(String::from(\"{name}\"),Value::from({value}))),",
+                name = value[0],
+                value = value[1]
+            ));
+        }
+    }
+
+    to_return.push_str("])");
+
+    // return Ok(to_return);
+    return Ok(to_return);
+}
+
 /// Writes the output rust file.
 fn write_to_file(
     block: (&str, &JsonValue),
@@ -392,7 +435,7 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
                 video_state:{videoState},
                 video_transparency:{videoTransparency},
                 text_to_speech_language:String::from(\"{textToSpeechLanguage}\"),
-                variables:HashMap::new(),
+                variables:{variables},
                 costume:0,
                 costumes:Vec::new(),
             }};
@@ -412,6 +455,7 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
                 .to_str(),
             textToSpeechLanguage = target["textToSpeechLanguage"],
             videoTransparency = target["videoTransparency"],
+            variables = get_variables(target).expect("There are no cloud variables"),
             costume = target_costumes(target),
         );
     } else {
@@ -436,7 +480,7 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
                 draggable:{draggable},
                 rotation_style:{rotationStyle},
                 name:\"{name}\".to_string(),
-                variables:HashMap::new(),
+                variables:{variables},
                 costume:0,
                 costumes:Vec::new(),
             }};
@@ -449,6 +493,7 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
             y = target["y"],
             size = target["size"],
             direction = target["direction"],
+            variables = get_variables(target).expect("There should be no cloud variables"),
             draggable = target["draggable"],
             rotationStyle = RotationStyle::from_str(target["rotationStyle"].as_str().unwrap())
                 .unwrap()
@@ -514,7 +559,7 @@ fn create_project() -> Result<(), io::Error> {
     piston2d-graphics = \"0.42.0\"
     pistoncore-glutin_window = \"0.69.0\"
     piston2d-opengl_graphics = \"0.81.0\"
-    resvg = \"0.24.0\"
+    resvg = \"0.25.0\"
     ";
 
     fs::write("output/Cargo.toml", toml)?;

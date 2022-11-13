@@ -17,6 +17,7 @@ use piston::event_loop::{EventLoop, EventSettings, Events};
 use piston::input::{RenderArgs, RenderEvent, UpdateArgs, UpdateEvent};
 use piston::window::WindowSettings;
 use rand::Rng;
+use std::fmt::Display;
 use std::fs;
 use std::pin::Pin;
 use std::{
@@ -81,14 +82,32 @@ impl VideoState {
 ///
 /// This can represent either a number or a string.
 #[derive(Clone)]
-enum Value {
+pub enum Value {
     Num(f32),
     String(String),
+    Bool(bool),
+    Null,
 }
 
 impl Default for Value {
     fn default() -> Self {
         return Self::Num(0.0);
+    }
+}
+
+impl Into<u32> for Value {
+    fn into(self) -> u32 {
+        match self {
+            Self::String(_) => 0,
+            Self::Bool(x) => x as u32,
+            Self::Null => 0,
+            Self::Num(x) => {
+                if x.is_nan() {
+                    return 0;
+                }
+                x as u32
+            }
+        }
     }
 }
 
@@ -98,9 +117,52 @@ impl From<f32> for Value {
     }
 }
 
+impl From<u32> for Value {
+    fn from(item: u32) -> Self {
+        Value::Num(item as f32)
+    }
+}
+impl From<i32> for Value {
+    fn from(item: i32) -> Self {
+        Value::Num(item as f32)
+    }
+}
+
+impl From<usize> for Value {
+    fn from(item: usize) -> Self {
+        Value::Num(item as f32)
+    }
+}
+
 impl From<String> for Value {
     fn from(item: String) -> Self {
         Value::String(item)
+    }
+}
+
+impl From<&str> for Value {
+    fn from(item: &str) -> Self {
+        Value::String(item.to_string())
+    }
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // write!(f,"{}",self.va)
+        match self {
+            Self::Num(x) => {
+                write!(f, "{}", x)
+            }
+            Self::String(x) => {
+                write!(f, "{}", x)
+            }
+            Self::Null => {
+                write!(f, "")
+            }
+            Self::Bool(x) => {
+                write!(f, "{}", x)
+            }
+        }
     }
 }
 
@@ -292,7 +354,7 @@ struct Sprite {
     /// but this should change soon.
     // blocks: Vec<Thread<'a>>,
     /// A list of variables for the sprite
-    variables: HashMap<String, Value>,
+    variables: HashMap<String, (String, Value)>,
     /// The current costume. This is an index to the costumes attribute, which
     /// is itself an index!.
     costume: usize,
@@ -390,6 +452,31 @@ fn change_y_by(object: &mut Target, y: f32) {
     }
 }
 
+/// Get a variable from an id.
+fn get_variable(object: &Target, id: &str) -> Value {
+    match &object.sprite {
+        Some(sprite) => {
+            // there is a sprite
+
+            // if the variable is on the sprite, get it.
+            let mut var = sprite.variables.get(id);
+
+            // otherwise, check the stage for the variable
+            if var.is_none() {
+                var = object.stage.variables.get(id)
+            }
+
+            // return the variable's value
+            return var.unwrap().1.clone();
+        }
+        None => {
+            let var = object.stage.variables.get(id).unwrap();
+
+            return var.1.clone();
+        }
+    }
+}
+
 fn set_costume(object: Option<&mut Sprite>, globalCostume: &mut usize, costume: usize) {
     match object {
         Some(sprite) => sprite.costume = costume,
@@ -405,7 +492,7 @@ fn set_costume_better(object: &mut Target, costume: usize) {
     }
 }
 
-fn say(speech: String) {
+fn say(speech: Value) {
     println!("{}", speech);
 }
 
@@ -613,7 +700,7 @@ struct Stage {
     video_transparency: i32,
     /// The text to speech language.  Defaults to the editor language.
     text_to_speech_language: String,
-    variables: HashMap<String, Value>,
+    variables: HashMap<String, (String, Value)>,
     /// The current costume.  An index to the stage costumes list.
     costume: usize,
     /// The costumes in the stage. These are indexes to the list of costumes in
