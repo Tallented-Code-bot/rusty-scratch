@@ -358,6 +358,8 @@ struct Thread<T: Future> {
     /// Whether or not the thread is complete.  If this is true, the thread
     /// is ok to be deleted.
     complete: bool,
+    /// When the thread should start
+    start: StartType,
 }
 
 /// The main project class.  This is in charge of running threads and
@@ -557,4 +559,23 @@ impl Target {
             stage,
         }
     }
+}
+
+/// The type of thread starter, such as flagClick.
+enum StartType {
+    FlagClicked,
+    KeyPressed,
+    SpriteClicked,
+    BackdropSwitches,
+    LoudnessGreater,
+    RecieveMessage,
+    StartAsClone,
+    CustomBlock,
+}
+
+enum WaitType {
+    /// A specific time.
+    Time(u32),
+    CustomBlock,
+    None,
 }

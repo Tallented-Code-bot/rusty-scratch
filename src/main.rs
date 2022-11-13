@@ -78,8 +78,16 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
     blocks.insert("operator_and", "OPERAND1&&OPERAND2");
     blocks.insert("operator_or", "OPERAND1||OPERAND2");
     blocks.insert("operator_not", "!OPERAND");
+    blocks.insert("argument_reporter_string_number", "VALUE");
 
     return blocks;
+}
+
+/// This represents a custom block.
+struct CustomBlock {
+    code: String,
+    /// A mapping of argument ids to names.
+    argument_ids_names: HashMap<String, String>,
 }
 
 fn main() {
@@ -305,6 +313,58 @@ fn follow_stack(
         );
     }
     return stack;
+}
+fn handle_custom_block(
+    block: (&str, &JsonValue),
+    blocks: &JsonValue,
+    block_reference: &HashMap<&str, &str>,
+) -> Option<String> {
+    if block.1["opcode"] != "procedures_definition" {
+        return None;
+    }
+
+    // the "inner" block definition
+    let prototype = (
+        block.1["inputs"]["custom_block"][1].as_str().unwrap(),
+        &blocks[block.1["inputs"]["custom_block"][1].as_str().unwrap()],
+    );
+
+    let input_names = json::parse(&prototype.1["mutation"]["argumentnames"].to_string()).unwrap();
+    let input_ids = json::parse(&prototype.1["mutation"]["argumentids"].to_string()).unwrap();
+    let mut inputs = HashMap::new();
+
+    for (id, name) in input_ids.members().zip(input_names.members()) {
+        inputs.insert(id.to_string(), name.to_string());
+    }
+
+    let mut function = follow_stack(
+        (
+            &block.1["next"].to_string(),
+            &blocks[block.1["next"].to_string()],
+        ),
+        blocks,
+        block_reference,
+    )
+    .join("\n");
+
+    // If run without screen refresh is enabled, remove all
+    // yields.
+    if prototype.1["mutation"]["warp"]
+        .as_bool()
+        .expect("Warp is bool")
+    {
+        function = function.replace("yield_!(Some(object));", "");
+    }
+
+    // format!("{}", function);
+
+    /*
+     * let input_1=XKCD;
+     * move_steps(input_1);
+     * change_size(input_1);
+     */
+
+    Some(function)
 }
 
 /// Create a hat block definition function.
