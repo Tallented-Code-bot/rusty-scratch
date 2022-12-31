@@ -28,6 +28,133 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use blocks::*;
+
+mod blocks {
+    use super::Sprite;
+    use super::Target;
+    use super::Value;
+    use core::f32::consts::PI;
+
+    pub fn move_steps(object: &mut Target, steps: f32) {
+        //unwrap option
+        if let Some(uo) = &mut object.sprite {
+            let radians = (90.0 - uo.direction) * PI / 180.0;
+            uo.x += steps * radians.cos();
+            uo.y += steps * radians.sin();
+        }
+    }
+
+    pub fn go_to(object: &mut Target, x: f32, y: f32) {
+        if let Some(uo) = &mut object.sprite {
+            uo.x = x;
+            uo.y = y;
+        }
+    }
+
+    pub fn turn_right(object: &mut Target, degrees: f32) {
+        if let Some(uo) = &mut object.sprite {
+            uo.direction += degrees;
+        }
+    }
+
+    pub fn turn_left(object: &mut Target, degrees: f32) {
+        if let Some(uo) = &mut object.sprite {
+            uo.direction -= degrees;
+        }
+    }
+
+    pub fn point_in_direction(object: &mut Target, degrees: f32) {
+        if let Some(uo) = &mut object.sprite {
+            uo.direction = degrees;
+        }
+    }
+
+    pub fn set_x(object: &mut Target, x: f32) {
+        if let Some(uo) = &mut object.sprite {
+            uo.x = x;
+        }
+    }
+    pub fn set_y(object: &mut Target, y: f32) {
+        if let Some(uo) = &mut object.sprite {
+            uo.y = y;
+        }
+    }
+
+    pub fn change_x_by(object: &mut Target, x: f32) {
+        if let Some(uo) = &mut object.sprite {
+            uo.x += x;
+        }
+    }
+    pub fn change_y_by(object: &mut Target, y: f32) {
+        if let Some(uo) = &mut object.sprite {
+            uo.y += y;
+        }
+    }
+
+    /// Get a variable from an id.
+    pub fn get_variable(object: &Target, id: &str) -> Value {
+        match &object.sprite {
+            Some(sprite) => {
+                // there is a sprite
+
+                // if the variable is on the sprite, get it.
+                let mut var = sprite.variables.get(id);
+
+                // otherwise, check the stage for the variable
+                if var.is_none() {
+                    var = object.stage.variables.get(id)
+                }
+
+                // return the variable's value
+                return var.unwrap().1.clone();
+            }
+            None => {
+                let var = object.stage.variables.get(id).unwrap();
+
+                return var.1.clone();
+            }
+        }
+    }
+
+    /// Set the costume.
+    ///
+    /// DEPRECATED
+    fn set_costume(object: Option<&mut Sprite>, globalCostume: &mut usize, costume: usize) {
+        match object {
+            Some(sprite) => sprite.costume = costume,
+            None => *globalCostume = costume,
+        }
+    }
+
+    /// Set the costume of a target.
+    pub fn set_costume_better(object: &mut Target, costume: usize) {
+        match &mut object.sprite {
+            Some(x) => x.costume = costume,
+            None => object.stage.costume = costume,
+        }
+    }
+
+    pub fn say(speech: Value) {
+        println!("{}", speech);
+    }
+
+    /// Join two strings.
+    pub fn join(a: String, b: String) -> String {
+        format!("{a}{b}")
+    }
+
+    /// Get the length of a string.
+    pub fn length(s: String) -> usize {
+        s.len()
+    }
+
+    /// Round a number.
+    pub fn round(s: f32) -> f32 {
+        s.round()
+    }
+}
+
 #[derive(Clone)]
 pub enum RotationStyle {
     AllAround,
@@ -229,106 +356,6 @@ impl Costume {
             gl,
         )
     }
-}
-
-fn move_steps(object: &mut Target, steps: f32) {
-    //unwrap option
-    if let Some(uo) = &mut object.sprite {
-        let radians = (90.0 - uo.direction) * PI / 180.0;
-        uo.x += steps * radians.cos();
-        uo.y += steps * radians.sin();
-    }
-}
-
-fn go_to(object: &mut Target, x: f32, y: f32) {
-    if let Some(uo) = &mut object.sprite {
-        uo.x = x;
-        uo.y = y;
-    }
-}
-
-fn turn_right(object: &mut Target, degrees: f32) {
-    if let Some(uo) = &mut object.sprite {
-        uo.direction += degrees;
-    }
-}
-
-fn turn_left(object: &mut Target, degrees: f32) {
-    if let Some(uo) = &mut object.sprite {
-        uo.direction -= degrees;
-    }
-}
-
-fn point_in_direction(object: &mut Target, degrees: f32) {
-    if let Some(uo) = &mut object.sprite {
-        uo.direction = degrees;
-    }
-}
-
-fn set_x(object: &mut Target, x: f32) {
-    if let Some(uo) = &mut object.sprite {
-        uo.x = x;
-    }
-}
-fn set_y(object: &mut Target, y: f32) {
-    if let Some(uo) = &mut object.sprite {
-        uo.y = y;
-    }
-}
-
-fn change_x_by(object: &mut Target, x: f32) {
-    if let Some(uo) = &mut object.sprite {
-        uo.x += x;
-    }
-}
-fn change_y_by(object: &mut Target, y: f32) {
-    if let Some(uo) = &mut object.sprite {
-        uo.y += y;
-    }
-}
-
-/// Get a variable from an id.
-fn get_variable(object: &Target, id: &str) -> Value {
-    match &object.sprite {
-        Some(sprite) => {
-            // there is a sprite
-
-            // if the variable is on the sprite, get it.
-            let mut var = sprite.variables.get(id);
-
-            // otherwise, check the stage for the variable
-            if var.is_none() {
-                var = object.stage.variables.get(id)
-            }
-
-            // return the variable's value
-            return var.unwrap().1.clone();
-        }
-        None => {
-            let var = object.stage.variables.get(id).unwrap();
-
-            return var.1.clone();
-        }
-    }
-}
-
-fn set_costume(object: Option<&mut Sprite>, globalCostume: &mut usize, costume: usize) {
-    match object {
-        Some(sprite) => sprite.costume = costume,
-        None => *globalCostume = costume,
-    }
-}
-
-/// Set the costume of a target.
-fn set_costume_better(object: &mut Target, costume: usize) {
-    match &mut object.sprite {
-        Some(x) => x.costume = costume,
-        None => object.stage.costume = costume,
-    }
-}
-
-fn say(speech: Value) {
-    println!("{}", speech);
 }
 
 /// An emty type that implements future.
@@ -533,7 +560,7 @@ struct Stage {
 ///
 /// A target is a combination of a sprite(or not) and the stage. If the sprite
 /// is absent(None), the target is assumed to be the stage.
-struct Target {
+pub struct Target {
     /// The stage.
     ///
     /// This is an owned variable, meaning it is a copy of the real stage. The
