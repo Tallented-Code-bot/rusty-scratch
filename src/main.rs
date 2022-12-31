@@ -219,13 +219,19 @@ fn get_block(
     let (id, data) = block;
     let opcode = data["opcode"].to_string();
     // println!("{}", block.1);
-    let mut function = match block_reference.get(&opcode as &str) {
-        Some(x) => x.to_string(),
-        None => {
-            println!("Error: unknown block (opcode {})", opcode);
-            panic!();
-        }
-    };
+    let mut function;
+    if opcode == "procedures_call" {
+        let cblock = data["mutation"]["proccode"].to_string();
+        function = cblock.to_uppercase();
+    } else {
+        function = match block_reference.get(&opcode as &str) {
+            Some(x) => x.to_string(),
+            None => {
+                println!("Error: unknown block (opcode {})", opcode);
+                panic!();
+            }
+        };
+    }
 
     // iterate over each input
     for input in data["inputs"].entries() {
@@ -297,19 +303,19 @@ fn follow_stack(
     // Create a list of functions
     let mut stack: Vec<String> = Vec::new();
 
-    let mut currentBlock = block;
+    let mut current_block = block;
 
     loop {
         // push the current block onto the stack.
-        stack.push(get_block(currentBlock, blocks, block_reference));
+        stack.push(get_block(current_block, blocks, block_reference));
 
         // If there is no next block, break out of the loop.
-        if currentBlock.1["next"].is_null() {
+        if current_block.1["next"].is_null() {
             break;
         }
-        currentBlock = (
-            currentBlock.1["next"].as_str().unwrap(),
-            &blocks[currentBlock.1["next"].as_str().unwrap()],
+        current_block = (
+            current_block.1["next"].as_str().unwrap(),
+            &blocks[current_block.1["next"].as_str().unwrap()],
         );
     }
     return stack;
@@ -318,7 +324,7 @@ fn handle_custom_block(
     block: (&str, &JsonValue),
     blocks: &JsonValue,
     block_reference: &HashMap<&str, &str>,
-) -> Option<String> {
+) -> Option<(String, String)> {
     if block.1["opcode"] != "procedures_definition" {
         return None;
     }
@@ -349,12 +355,15 @@ fn handle_custom_block(
 
     // If run without screen refresh is enabled, remove all
     // yields.
-    if prototype.1["mutation"]["warp"]
-        .as_bool()
-        .expect("Warp is bool")
+    //
+    let warp = &prototype.1["mutation"]["warp"];
+    if (warp.is_boolean() && warp.as_bool().expect("Must be bool"))
+        || (warp.is_string() && warp.as_str().expect("Must be str") == "true")
     {
         function = function.replace("yield_!(Some(object));", "");
     }
+
+    let proccode = prototype.1["mutation"]["test_block_1"].to_string();
 
     // format!("{}", function);
 
@@ -364,7 +373,7 @@ fn handle_custom_block(
      * change_size(input_1);
      */
 
-    Some(function)
+    Some((proccode, function))
 }
 
 /// Create a hat block definition function.
@@ -372,6 +381,7 @@ fn create_hat(
     block: (&str, &JsonValue),
     blocks: &JsonValue,
     block_reference: &HashMap<&str, &str>,
+    custom_blocks: &HashMap<String, String>,
 ) -> Result<String, String> {
     // Make sure the block is a top level block.
     if !block.1["topLevel"].as_bool().unwrap() {
@@ -381,6 +391,14 @@ fn create_hat(
     if !block.1["parent"].is_null() {
         return Err(String::from("Block has a parent"));
     }
+
+    if block.1["opcode"] == "procedures_call" {
+        return Err(String::from("Custom block"));
+    }
+
+    // if let Some(x) = handle_custom_block(block, blocks, block_reference) {
+    //     return Ok(x);
+    // }
 
     // Get the contents of the stack
     let contents = follow_stack(
@@ -414,8 +432,26 @@ fn create_all_hats(
 ) -> Result<String, String> {
     let mut contents: String = String::new();
 
+    // Get all the custom blocks
+    let mut custom_blocks: HashMap<String, String> = HashMap::new();
     for block in blocks.entries() {
-        let hat = create_hat(block, blocks, block_reference);
+        let cblock = handle_custom_block(block, blocks, block_reference);
+        match cblock {
+            Some((procode, func)) => {
+                custom_blocks.insert(procode, func);
+            }
+            None => {}
+        };
+    }
+
+    let custom_block_reference = custom_blocks.clone();
+    // Expand all custom blocks in the definitions of the custom blocks
+    for (_name, definition) in &mut custom_blocks {
+        expand_custom_blocks(definition, &custom_block_reference);
+    }
+
+    for block in blocks.entries() {
+        let hat = create_hat(block, blocks, block_reference, &custom_blocks);
         match hat {
             Ok(x) => contents.push_str(
                 format!(
@@ -429,8 +465,16 @@ fn create_all_hats(
             }
         }
     }
+
     //return Err(String::from("Bad"));
     return Ok(format!("{}", contents));
+}
+
+/// Expand all the custom blocks in a function.
+fn expand_custom_blocks(function: &mut String, custom_blocks: &HashMap<String, String>) {
+    for (name, definition) in custom_blocks {
+        *function = function.replacen(name, definition, 1);
+    }
 }
 
 /// Get the variables from a target.
@@ -479,7 +523,7 @@ fn write_to_file(
     // Get the library file to include
     let lib = include_str!("../target/target.rs");
 
-    let function = create_hat(block, blocks, block_reference).unwrap();
+    let function = create_hat(block, blocks, block_reference, &HashMap::new()).unwrap();
 
     fs::write(filename, format!("{}\n\n\n{}", lib, function)).expect("Could not write file.");
 }
