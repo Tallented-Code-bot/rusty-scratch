@@ -1,6 +1,7 @@
 use crate::target::{RotationStyle, Value, VideoState};
 use json::{self, JsonValue};
 use opengl_graphics::CreateTexture;
+use rand::Rng;
 use reqwest;
 use resvg;
 use std::collections::HashMap;
@@ -10,6 +11,7 @@ use std::fs::File;
 use std::io::Read;
 use std::io::{self, Cursor};
 use std::process::{Command, Output};
+use target::StartType;
 use zip;
 
 mod target;
@@ -37,7 +39,7 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
     blocks.insert("motion_changexby", "change_x_by(&mut object,DXf32)");
     blocks.insert("motion_changeyby", "change_y_by(&mut object,DYf32);");
     // blocks.insert("motion_movesteps", "object.move_steps(STEPSf32);");
-    blocks.insert("motion_movesteps", "move_steps(&mut object,STEPSf32);");
+    blocks.insert("motion_movesteps", "move_steps(sprite.clone(),STEPSf32);");
     blocks.insert("motion_turnleft", "turn_left(&mut object,DEGREESf32)");
     blocks.insert("motion_turnright", "turn_right(&mut object,DEGREESf32)");
     blocks.insert("motion_gotoxy", "go_to(&mut object,Xf32,Yf32)");
@@ -48,17 +50,24 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
     blocks.insert("event_whenflagclicked", "flag_clicked();");
     blocks.insert(
         "control_repeat",
-        "for z in 0..TIMES.into(){SUBSTACK\nobject=yield_!(Some(object));}",
+        "for z in 0..TIMES.into(){SUBSTACK\nYield::Start.await;}",
     ); //TODO add yielding
-    blocks.insert("control_forever", "loop{SUBSTACK}"); //TODO add yielding
+    blocks.insert("control_forever", "loop{SUBSTACK\nYield::Start.await;}");
     blocks.insert("control_if", "if CONDITION {SUBSTACK}");
     blocks.insert("control_if_else", "if CONDITION {SUBSTACK}else{SUBSTACK2}");
-    blocks.insert("control_repeat_until", "while !CONDITION{SUBSTACK}"); //TODO add yielding
+    blocks.insert("control_wait_until", "wait_until(CONDITION).await;");
+    blocks.insert(
+        "control_repeat_until",
+        "while !CONDITION{SUBSTACK\nYield::Start.await;}",
+    );
 
     // blocks.insert("looks_say", "object.say(String::from(\"MESSAGE\"));");
-    blocks.insert("looks_say", "say(MESSAGE);");
+    blocks.insert("looks_say", "say(Value::from(MESSAGE));");
     blocks.insert("event_whenflagclicked", "");
-    blocks.insert("data_variable", "get_variable(&object,VARIABLE)");
+    // blocks.insert(
+    //     "data_variable",
+    //     "get_variable(Some(sprite.clone()),stage.clone(),VARIABLE)",
+    // );
     blocks.insert(
         "data_setvariableto",
         "object.set_variable(String::from(\"VARIABLE\"),&mut Value::from(VALUEf32));",
@@ -128,6 +137,7 @@ fn main() {
                 .unwrap();
 
             let mut program=Program::new();
+            let mut sprites: Vec<Rc<Mutex<Sprite>>> = Vec::new();
 
             {targets}
             // (Sprite1.blocks.function)(&mut Sprite1);
@@ -139,12 +149,13 @@ fn main() {
             let mut events = Events::new(EventSettings::new());
             events.set_max_fps(30);
             events.set_ups(30);
+            program.click_flag();
             while let Some(e) = events.next(&mut window){{
                 if let Some(args) = e.render_args(){{
-                    program.render(&args,&Stage);
+                    program.render(&args,Stage.clone());
                 }}
                 if let Some(args) = e.update_args(){{
-                    program.tick(&mut Stage);
+                    program.tick(/*Stage.clone()*/);
                 }}
             }}
 
@@ -222,7 +233,10 @@ fn get_block(
     let mut function;
     if opcode == "procedures_call" {
         let cblock = data["mutation"]["proccode"].to_string();
-        function = cblock.to_uppercase();
+        function = format!(
+            "stack_procedures_definition_{}(sprite.clone(),stage.clone()).await;",
+            cblock
+        );
     } else {
         function = match block_reference.get(&opcode as &str) {
             Some(x) => x.to_string(),
@@ -256,7 +270,7 @@ fn get_block(
                     // Variable
                     input.0,
                     format!(
-                        "get_variable(&object,\"{}\")",
+                        "get_variable(Some(sprite.clone()),stage.clone(),\"{}\")",
                         input.1[1][2].as_str().unwrap()
                     )
                     .as_str(),
@@ -382,7 +396,7 @@ fn create_hat(
     blocks: &JsonValue,
     block_reference: &HashMap<&str, &str>,
     custom_blocks: &HashMap<String, String>,
-) -> Result<String, String> {
+) -> Result<(String, StartType, String, bool), String> {
     // Make sure the block is a top level block.
     if !block.1["topLevel"].as_bool().unwrap() {
         return Err(String::from("Not a top level block"));
@@ -392,9 +406,16 @@ fn create_hat(
         return Err(String::from("Block has a parent"));
     }
 
-    if block.1["opcode"] == "procedures_call" {
-        return Err(String::from("Custom block"));
-    }
+    let mut custom_block = false;
+    let start_type = match block.1["opcode"].as_str().unwrap() {
+        "procedures_call" => return Err(String::from("Custom block")),
+        "event_whenflagclicked" => StartType::FlagClicked,
+        "procedures_define" => {
+            custom_block = true;
+            StartType::NoStart
+        }
+        _ => StartType::NoStart,
+    };
 
     // if let Some(x) = handle_custom_block(block, blocks, block_reference) {
     //     return Ok(x);
@@ -412,23 +433,45 @@ fn create_hat(
 
     // let function = "fn NAME (){CONTENTS}";
     // let name=format!{}
-    let function = format!(
-        "gen!({{
-let mut object:Target =yield_!(None);
-{}
-yield_!(Some(object));
-}})",
+    let mut function = format!(
+        //         "gen!({{
+        // let mut object:Target =yield_!(None);
+        // {}
+        // yield_!(Some(object));
+        // }})",
+        "{}",
         contents.join("\n")
     );
 
+    let mut rng = rand::thread_rng();
+    let mut warp = false;
+    let name = if block.1["opcode"] == "procedures_definition" {
+        let prototype = &blocks[block.1["inputs"]["custom_block"][1].to_string()];
+        if prototype["mutation"]["warp"] == "true" {
+            warp = false; //true
+        }
+        function = function.replace("Yield::Start.await;", ""); // remove all yields
+        format!(
+            "procedures_definition_{}",
+            prototype["mutation"]["proccode"]
+        )
+    } else {
+        format!(
+            "{}{}",
+            block.1["opcode"].as_str().unwrap(),
+            rng.gen_range(0..99999999999999999u64)
+        )
+    };
+
     // TODO Remove this
-    return Ok(String::from(function));
+    return Ok((String::from(function), start_type, name, warp));
 }
 
 /// Returns all stacks of blocks.
 fn create_all_hats(
     blocks: &JsonValue,
     block_reference: &HashMap<&str, &str>,
+    name: String,
 ) -> Result<String, String> {
     let mut contents: String = String::new();
 
@@ -453,13 +496,17 @@ fn create_all_hats(
     for block in blocks.entries() {
         let hat = create_hat(block, blocks, block_reference, &custom_blocks);
         match hat {
-            Ok(x) => contents.push_str(
-                format!(
-                    "program.add_thread(Thread{{function:{},obj_index:Some(program.objects.len()),complete:false}});\n",
-                    x.as_str()
-                )
-                .as_str(),
-            ),
+            Ok((function, start_type, function_name, warp)) => {
+                match warp{
+                    false => contents.push_str(format!(
+                    // "program.add_thread(Thread{{function:{},obj_index:Some(program.objects.len()),complete:false}});\n",
+                    "async fn stack_{function_name}(sprite: Rc<Mutex<Sprite>>, stage: Rc<Mutex<Stage>>){{{function}}}
+program.add_thread(Thread::new(stack_{function_name}({sprite_name}.clone(),Stage.clone())/*,Some(program.objects.len())*/,{start_type}));\n",
+                    sprite_name = name,
+                ) .as_str()),
+                    true => contents.push_str(format!("fn stack_{function_name}(sprite:Rc<Mutex<Sprite>>,stage:Rc<Mutex<Stage>>){{{function}}}").as_str())
+                }
+            }
             Err(x) => {
                 continue;
             }
@@ -482,7 +529,8 @@ fn expand_custom_blocks(function: &mut String, custom_blocks: &HashMap<String, S
 /// The string constructs a new HashMap with the variables
 /// in it.
 fn get_variables(target: &JsonValue) -> Result<String, &str> {
-    let mut to_return = String::from("HashMap::from([");
+    // let mut to_return = String::from("HashMap::from([");
+    let mut to_return = String::new();
     for (key, value) in target["variables"].entries() {
         // cloud variables are not supported
         if let Some(true) = value[2].as_bool() {
@@ -492,21 +540,21 @@ fn get_variables(target: &JsonValue) -> Result<String, &str> {
         // if the value is a string, include quotation marks                    v        v
         if value[1].is_string() {
             to_return.push_str(&*format!(
-                "(String::from(\"{key}\"),(String::from(\"{name}\"),Value::from(\"{value}\"))),",
+                ".add_variable(String::from(\"{key}\"),(String::from(\"{name}\"),Value::from(\"{value}\")))\n",
                 name = value[0],
                 value = value[1]
             ))
         } else {
             //otherwise don't include qotation marks.
             to_return.push_str(&*format!(
-                "(String::from(\"{key}\"),(String::from(\"{name}\"),Value::from({value}))),",
+                ".add_variable(String::from(\"{key}\"),(String::from(\"{name}\"),Value::from({value})))\n",
                 name = value[0],
                 value = value[1]
             ));
         }
     }
 
-    to_return.push_str("])");
+    // to_return.push_str("])");
 
     // return Ok(to_return);
     return Ok(to_return);
@@ -525,16 +573,21 @@ fn write_to_file(
 
     let function = create_hat(block, blocks, block_reference, &HashMap::new()).unwrap();
 
-    fs::write(filename, format!("{}\n\n\n{}", lib, function)).expect("Could not write file.");
+    fs::write(filename, format!("{}\n\n\n{}", lib, function.0)).expect("Could not write file.");
 }
 
 /// Generate a new target(sprite or stage) from json.
 fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) -> String {
     // If the target is the stage
     if target["isStage"].as_bool().unwrap() {
-        let function = create_all_hats(&target["blocks"], block_reference).unwrap();
+        let function = create_all_hats(
+            &target["blocks"],
+            block_reference,
+            target["name"].to_string(),
+        )
+        .unwrap();
         return format!(
-            "let mut {name}=Stage{{
+            "/*let mut {name}=Rc::new(Mutex::new(Stage{{
                 tempo:{tempo},
                 video_state:{videoState},
                 video_transparency:{videoTransparency},
@@ -542,15 +595,24 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
                 variables:{variables},
                 costume:0,
                 costumes:Vec::new(),
-            }};
+            }}));*/
             //let mut tempo={tempo};
             //let mut video_state={videoState};
             //let mut video_transparency={videoTransparency};
             //let mut text_to_speech_language=String::from(\"{textToSpeechLanguage}\");
             //let mut global_variables:HashMap<String,Value> =HashMap::new();
             //let mut currentCostume:usize=0;
+
+            let mut {name}=Rc::new(Mutex::new(
+                StageBuilder::new()
+                    .tempo({tempo})
+                    .video_state({videoState})
+                    .video_transparency({videoTransparency})
+                    {costume}
+                    {variables}
+                    .build()
+            ));
             {function}
-            {costume}
 ",
             name = target["name"],
             tempo = target["tempo"],
@@ -572,10 +634,15 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
             &block_reference,
         )
         .unwrap(); */
-        let function = create_all_hats(&target["blocks"], &block_reference).unwrap();
+        let function = create_all_hats(
+            &target["blocks"],
+            &block_reference,
+            target["name"].to_string(),
+        )
+        .unwrap();
 
         return format!(
-            "let mut {name}=Sprite{{
+            "/*let mut {name}=Rc::new(Mutex::new(Sprite{{
                 visible:{visible},
                 x:{x}f32,
                 y:{y}f32,
@@ -587,10 +654,23 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
                 variables:{variables},
                 costume:0,
                 costumes:Vec::new(),
-            }};
+            }}));*/
+
+            let mut {name} = Rc::new(Mutex::new(
+                SpriteBuilder::new(\"{name}\".to_string())
+                    .visible({visible})
+                    .position({x}f32,{y}f32)
+                    .direction({direction}f32)
+                    .draggable({draggable})
+                    .rotation_style({rotationStyle})
+                    {costumes}
+                    {variables}
+                    .build()
+            ));
+
             {function}
-            {costumes}
-            program.add_object({name});",
+            program.add_object({name}.clone());
+            //sprites.push({name}.clone());",
             name = target["name"],
             visible = target["visible"],
             x = target["x"],
@@ -713,10 +793,11 @@ fn target_costumes(target: &JsonValue) -> String {
         if format != "svg" {
             continue;
         }
-        to_return.push_str(&format!("program.add_costume_{stage_or_sprite}(
-                                        Costume::new(PathBuf::from(\"assets/{name}/{costumename}.{format}\"),1.0).unwrap(),
-                                        &mut {name}
-                                    );\n"));
+        // to_return.push_str(&format!("program.add_costume_{stage_or_sprite}(
+        //                                 Costume::new(PathBuf::from(\"assets/{name}/{costumename}.{format}\"),1.0).unwrap(),
+        //                                 &mut {name}
+        //                             );\n"));
+        to_return.push_str(&format!(".add_costume(Costume::new(PathBuf::from(\"assets/{name}/{costumename}.{format}\"),1.0).unwrap())\n"))
     }
 
     return to_return;

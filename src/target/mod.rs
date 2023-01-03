@@ -7,11 +7,12 @@
 )]
 
 extern crate rand;
+use core::task::{RawWaker, RawWakerVTable, Waker};
 use genawaiter::rc::{gen, Co};
 use genawaiter::{yield_, GeneratorState};
 use glutin_window::GlutinWindow as Window;
 use graphics::types::{Matrix2d, Scalar};
-use graphics::{rectangle, Context, Image};
+use graphics::{rectangle, Context as DrawingContext, Image};
 use opengl_graphics::{GlGraphics, OpenGL, Texture, TextureSettings};
 use piston::event_loop::{EventLoop, EventSettings, Events};
 use piston::input::{RenderArgs, RenderEvent, UpdateArgs, UpdateEvent};
@@ -20,29 +21,31 @@ use rand::Rng;
 use std::fmt::Display;
 use std::fs;
 use std::pin::Pin;
+use std::task::{Context, Poll};
 use std::{
     boxed::Box,
     collections::HashMap,
     f32::consts::PI,
     future::{Future, IntoFuture},
     path::{Path, PathBuf},
+    rc::Rc,
+    sync::Mutex,
 };
 
 use blocks::*;
 
 mod blocks {
-    use super::Sprite;
-    use super::Target;
-    use super::Value;
-    use core::f32::consts::PI;
+    use rand::Rng;
 
-    pub fn move_steps(object: &mut Target, steps: f32) {
-        //unwrap option
-        if let Some(uo) = &mut object.sprite {
-            let radians = (90.0 - uo.direction) * PI / 180.0;
-            uo.x += steps * radians.cos();
-            uo.y += steps * radians.sin();
-        }
+    use super::{Sprite, Stage, Target, Value, Yield};
+    use core::f32::consts::PI;
+    use std::{rc::Rc, sync::Mutex};
+
+    pub fn move_steps(sprite: Rc<Mutex<Sprite>>, steps: f32) {
+        let mut sprite = sprite.lock().unwrap(); //shadow
+        let radians = (90.0 - sprite.direction) * PI / 180.0;
+        sprite.x += steps * radians.cos();
+        sprite.y += steps * radians.sin();
     }
 
     pub fn go_to(object: &mut Target, x: f32, y: f32) {
@@ -93,24 +96,30 @@ mod blocks {
     }
 
     /// Get a variable from an id.
-    pub fn get_variable(object: &Target, id: &str) -> Value {
-        match &object.sprite {
+    pub fn get_variable(
+        sprite: Option<Rc<Mutex<Sprite>>>,
+        stage: Rc<Mutex<Stage>>,
+        id: &str,
+    ) -> Value {
+        let stage = stage.lock().unwrap();
+        match sprite {
             Some(sprite) => {
                 // there is a sprite
+                let sprite = sprite.lock().unwrap();
 
                 // if the variable is on the sprite, get it.
                 let mut var = sprite.variables.get(id);
 
                 // otherwise, check the stage for the variable
                 if var.is_none() {
-                    var = object.stage.variables.get(id)
+                    var = stage.variables.get(id)
                 }
 
                 // return the variable's value
-                return var.unwrap().1.clone();
+                return var.expect("no such variable found").1.clone();
             }
             None => {
-                let var = object.stage.variables.get(id).unwrap();
+                let var = stage.variables.get(id).unwrap();
 
                 return var.1.clone();
             }
@@ -152,6 +161,20 @@ mod blocks {
     /// Round a number.
     pub fn round(s: f32) -> f32 {
         s.round()
+    }
+
+    /// Wait until condition is true.
+    pub async fn wait_until(condition: bool) {
+        while !condition {
+            Yield::Start.await;
+        }
+    }
+
+    pub fn generate_random(from: Value, to: Value) -> Value {
+        let from: u32 = from.into();
+        let to: u32 = to.into();
+        let r = rand::thread_rng().gen_range(from..=to);
+        Value::Num(r as f32)
     }
 }
 
@@ -208,7 +231,7 @@ impl VideoState {
 /// A value, for a variable, list, or something else.
 ///
 /// This can represent either a number or a string.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, PartialOrd)]
 pub enum Value {
     Num(f32),
     String(String),
@@ -293,8 +316,96 @@ impl Display for Value {
     }
 }
 
-#[derive(Clone)]
-struct Sprite {
+pub struct SpriteBuilder {
+    visible: bool,
+    x: f32,
+    y: f32,
+    size: f32,
+    direction: f32,
+    draggable: bool,
+    rotation_style: RotationStyle,
+    name: String,
+    variables: HashMap<String, (String, Value)>,
+    costume: usize,
+    costumes: Vec<Costume>,
+}
+
+impl SpriteBuilder {
+    /// Create a default new SpriteBuilder.
+    pub fn new(name: String) -> Self {
+        Self {
+            visible: true,
+            x: 0.0,
+            y: 0.0,
+            size: 100.0,
+            direction: 90.0,
+            draggable: false,
+            rotation_style: RotationStyle::AllAround,
+            name,
+            variables: HashMap::new(),
+            costume: 0,
+            costumes: Vec::new(),
+        }
+    }
+
+    pub fn build(self) -> Sprite {
+        Sprite {
+            visible: self.visible,
+            x: self.x,
+            y: self.y,
+            size: self.size,
+            direction: self.direction,
+            draggable: self.draggable,
+            rotation_style: self.rotation_style,
+            name: self.name,
+            variables: self.variables,
+            costume: self.costume,
+            costumes: self.costumes,
+        }
+    }
+
+    pub fn position(mut self, x: f32, y: f32) -> Self {
+        self.x = x;
+        self.y = y;
+        self
+    }
+
+    pub fn visible(mut self, visible: bool) -> Self {
+        self.visible = visible;
+        self
+    }
+
+    pub fn direction(mut self, direction: f32) -> Self {
+        self.direction = direction;
+        self
+    }
+    pub fn size(mut self, size: f32) -> Self {
+        self.size = size;
+        self
+    }
+    pub fn draggable(mut self, draggable: bool) -> Self {
+        self.draggable = draggable;
+        self
+    }
+    pub fn rotation_style(mut self, rotation_style: RotationStyle) -> Self {
+        self.rotation_style = rotation_style;
+        self
+    }
+    pub fn add_variable(mut self, id: String, value: (String, Value)) -> Self {
+        self.variables.insert(id, value);
+        self
+    }
+    pub fn add_costume(mut self, costume: Costume) -> Self {
+        self.costumes.push(costume);
+        self
+    }
+    pub fn costume(mut self, costume: usize) -> Self {
+        self.costume = costume;
+        self
+    }
+}
+
+pub struct Sprite {
     /// Whether the sprite is visibile.  Defaults to true.
     visible: bool,
     /// The x-coordinate.  Defaults to 0.
@@ -322,11 +433,11 @@ struct Sprite {
     costume: usize,
     /// A list of paths for costumes. Each item is an index to the program
     /// costume list.
-    costumes: Vec<usize>,
+    costumes: Vec<Costume>,
 }
 
 /// A costume or backdrop
-struct Costume {
+pub struct Costume {
     name: String,
     rotation_center_x: u32,
     rotation_center_y: u32,
@@ -373,65 +484,159 @@ impl Future for EmptyFuture {
     }
 }
 
-/// A thread object.
-struct Thread<T: Future> {
+/// Return an empty RawWaker which does nothing.
+///
+/// See https://os.phil-opp.com/async-await/#simple-executor
+fn dummy_raw_waker() -> RawWaker {
+    // A function that does nothing.
+    fn no_op(_: *const ()) {}
+
+    // the clone function just creates a new RawWaker. This is fine because the
+    // RawWaker does nothing.
+    fn clone(_: *const ()) -> RawWaker {
+        dummy_raw_waker()
+    }
+
+    // Create a vtable with the clone function, and no_op for wake and drop.
+    let vtable = &RawWakerVTable::new(clone, no_op, no_op, no_op);
+
+    // Create a new RawWaker. The 0 is simply a null pointer that is unused.
+    RawWaker::new(0 as *const (), vtable)
+}
+
+/// Return an empty waker.
+fn dummy_waker() -> Waker {
+    unsafe { Waker::from_raw(dummy_raw_waker()) }
+}
+
+async fn yield_fn() -> () {
+    ()
+}
+
+/// This is a basic Future for other functions to yield. It returns Pending the
+/// first time it is polled and Ready the second time.
+enum Yield {
+    Start,
+    Middle,
+    End,
+}
+
+impl Future for Yield {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match *self.as_mut() {
+            Yield::Start => {
+                *self = Yield::Middle;
+                Poll::Pending
+            }
+            Yield::Middle => {
+                *self = Yield::End;
+                Poll::Ready(())
+            }
+            Yield::End => {
+                panic!("poll called after Poll::Ready was returned");
+            }
+        }
+    }
+}
+
+/// A thread object. This is a "virtual thread"; that is, it is not run in a
+/// separate thread, but in an async loop.
+struct Thread {
     /// The function to be called for the thread. This is a generator function
     /// that can have yields in it.
-    function: genawaiter::rc::Gen<Option<Target>, Target, T>,
+    function: Pin<Box<dyn Future<Output = ()>>>,
     /// The object that this thread works on. The number represents the index of
     /// the object in the program vector. If this is None, it represents the
     /// stage.
-    obj_index: Option<usize>,
+    // obj_index: Option<usize>,
     /// Whether or not the thread is complete.  If this is true, the thread
     /// is ok to be deleted.
     complete: bool,
+    running: bool,
     /// When the thread should start
     start: StartType,
 }
 
+impl Thread {
+    /// Create a new thread from a future.
+    fn new(
+        future: impl Future<Output = ()> + 'static, /*, obj_index: Option<usize>*/
+        start: StartType,
+    ) -> Thread {
+        Thread {
+            function: Box::pin(future),
+            complete: false,
+            running: false,
+            start, // obj_index,
+        }
+    }
+
+    fn poll(&mut self, context: &mut Context) -> Poll<()> {
+        self.function.as_mut().poll(context)
+    }
+}
+
 /// The main project class.  This is in charge of running threads and
 /// redrawing the screen.
-struct Program<T: Future> {
-    threads: Vec<Thread<T>>,
-    objects: Vec<Sprite>,
+struct Program {
+    threads: Vec<Thread>,
+    objects: Vec<Rc<Mutex<Sprite>>>,
     gl: GlGraphics,
     costumes: Vec<Costume>,
 }
 
-impl<T: Future> Program<T> {
+impl Program {
     /// Run 1 tick
-    fn tick(&mut self, stage: &mut Stage) {
-        for (i, thread) in &mut self.threads.iter_mut().enumerate() {
-            let returned = match thread.obj_index {
-                Some(obj_index_unwrapped) => thread.function.resume_with(Target::new(
-                    self.objects[obj_index_unwrapped].clone(),
-                    stage.clone(),
-                )),
+    fn tick(&mut self /*, stage: Rc<Mutex<Stage>>*/) {
+        // for (i, thread) in &mut self.threads.iter_mut().enumerate() {
+        //     let returned = match thread.obj_index {
+        //         Some(obj_index_unwrapped) => thread.function.resume_with(Target::new(
+        //             self.objects[obj_index_unwrapped].clone(),
+        //             stage.clone(),
+        //         )),
 
-                None => thread
-                    .function
-                    .resume_with(Target::new_stage(stage.clone())),
-            };
+        //         None => thread
+        //             .function
+        //             .resume_with(Target::new_stage(stage.clone())),
+        //     };
 
-            match returned {
-                GeneratorState::Yielded(yielded_sprite) => {
-                    if let Some(zz) = yielded_sprite {
-                        match zz.sprite {
-                            Some(y) => {
-                                if let Some(obj_index_unwrapped) = thread.obj_index {
-                                    self.objects[obj_index_unwrapped] = y;
-                                    *stage = zz.stage;
-                                }
-                            }
-                            None => *stage = zz.stage,
-                        }
-                    }
+        //     match returned {
+        //         GeneratorState::Yielded(yielded_sprite) => {
+        //             if let Some(zz) = yielded_sprite {
+        //                 match zz.sprite {
+        //                     Some(y) => {
+        //                         if let Some(obj_index_unwrapped) = thread.obj_index {
+        //                             self.objects[obj_index_unwrapped] = y;
+        //                             *stage = zz.stage;
+        //                         }
+        //                     }
+        //                     None => *stage = zz.stage,
+        //                 }
+        //             }
+        //         }
+        //         GeneratorState::Complete(x) => thread.complete = true,
+        //     }
+        // }
+
+        // // remove all threads that are complete.
+        // self.threads.retain(|x| !x.complete);
+        for thread in &mut self.threads {
+            // if the thread has not started yet, go to the next one.
+            if !thread.running {
+                continue;
+            }
+            let waker = dummy_waker();
+            let mut context = Context::from_waker(&waker);
+            match thread.poll(&mut context) {
+                Poll::Pending => { /*The task is not done, so do nothing.*/ }
+                Poll::Ready(()) => {
+                    /*The task is done, so set it to complete.*/
+                    thread.complete = true;
                 }
-                GeneratorState::Complete(x) => thread.complete = true,
             }
         }
-
-        // remove all threads that are complete.
         self.threads.retain(|x| !x.complete);
     }
 
@@ -444,9 +649,20 @@ impl<T: Future> Program<T> {
         };
     }
 
+    /// Simulate the flag being clicked by starting all threads with FlagClicked hat blocks.
+    fn click_flag(&mut self) {
+        for thread in &mut self.threads {
+            if thread.start == StartType::FlagClicked {
+                thread.running = true;
+            }
+        }
+    }
+
     /// Renders a red square.
-    fn render(&mut self, args: &RenderArgs, stage: &Stage) {
+    fn render(&mut self, args: &RenderArgs, stage: Rc<Mutex<Stage>>) {
         use graphics::*;
+
+        let stage = stage.lock().unwrap();
 
         const GREEN: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
         const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
@@ -460,11 +676,13 @@ impl<T: Future> Program<T> {
             // Clear the screen
             clear(BLACK, gl);
 
-            self.costumes[stage.costumes[stage.costume]].draw(c.transform, gl);
+            // self.costumes[stage.costumes[stage.costume]].draw(c.transform, gl);
+            stage.costumes[stage.costume].draw(c.transform, gl);
 
             // TODO sort by order
-            for object in &self.objects {
-                self.costumes[object.costumes[object.costume]].draw(
+            for object in self.objects.clone() {
+                let object = object.lock().unwrap();
+                object.costumes[object.costume].draw(
                     c.transform
                         .trans(240.0, 180.0)
                         .trans(object.x.into(), <f32 as Into<f64>>::into(object.y * -1.0)),
@@ -472,32 +690,38 @@ impl<T: Future> Program<T> {
                 );
             }
         })
+
+        // self.gl.draw(args.viewport(), |c, gl| {
+        //     clear(BLACK, gl);
+        // })
     }
 
     /// Add threads from a sprite to the program.
     /// This _moves_ the threads out of the sprite.
-    fn add_threads(&mut self, mut threads: Vec<Thread<T>>) {
+    fn add_threads(&mut self, mut threads: Vec<Thread>) {
         // self.threads.append(&mut sprite.blocks);
         self.threads.append(&mut threads)
     }
 
-    fn add_object(&mut self, object: Sprite) {
+    fn add_object(&mut self, object: Rc<Mutex<Sprite>>) {
         self.objects.push(object);
     }
 
     /// Add a costume to the program
     fn add_costume_sprite(&mut self, costume: Costume, sprite: &mut Sprite) {
-        sprite.costumes.push(self.costumes.len());
-        self.costumes.push(costume);
+        todo!();
+        // sprite.costumes.push(self.costumes.len());
+        // self.costumes.push(costume);
     }
 
     fn add_costume_stage(&mut self, costume: Costume, stage: &mut Stage) {
-        stage.costumes.push(self.costumes.len());
-        self.costumes.push(costume);
+        todo!();
+        // stage.costumes.push(self.costumes.len());
+        // self.costumes.push(costume);
     }
 
     /// Add a thread.
-    fn add_thread(&mut self, thread: Thread<T>) {
+    fn add_thread(&mut self, thread: Thread) {
         self.threads.push(thread);
     }
 }
@@ -536,9 +760,71 @@ fn get_texture_from_path(
     return texture;
 }
 
+pub struct StageBuilder {
+    tempo: i32,
+    video_state: VideoState,
+    video_transparency: i32,
+    text_to_speech_language: String,
+    variables: HashMap<String, (String, Value)>,
+    costume: usize,
+    costumes: Vec<Costume>,
+}
+
+impl StageBuilder {
+    pub fn new() -> Self {
+        Self {
+            tempo: 60, //BPM
+            video_state: VideoState::Off,
+            video_transparency: 0,
+            text_to_speech_language: "en".to_string(),
+            variables: HashMap::new(),
+            costume: 0,
+            costumes: Vec::new(),
+        }
+    }
+    pub fn build(self) -> Stage {
+        Stage {
+            tempo: self.tempo,
+            video_state: self.video_state,
+            video_transparency: self.video_transparency,
+            text_to_speech_language: self.text_to_speech_language,
+            variables: self.variables,
+            costume: self.costume,
+            costumes: self.costumes,
+        }
+    }
+    pub fn tempo(mut self, tempo: i32) -> Self {
+        self.tempo = tempo;
+        self
+    }
+    pub fn video_state(mut self, video_state: VideoState) -> Self {
+        self.video_state = video_state;
+        self
+    }
+    pub fn video_transparency(mut self, transparency: i32) -> Self {
+        self.video_transparency = transparency;
+        self
+    }
+    pub fn add_variable(mut self, id: String, value: (String, Value)) -> Self {
+        self.variables.insert(id, value);
+        self
+    }
+    pub fn add_costume(mut self, costume: Costume) -> Self {
+        self.costumes.push(costume);
+        self
+    }
+    pub fn costume(mut self, costume: usize) -> Self {
+        self.costume = costume;
+        self
+    }
+    pub fn text_to_speech_language(mut self, ttsl: String) -> Self {
+        self.text_to_speech_language = ttsl;
+        self
+    }
+}
+
 /// This is the stage object.
-#[derive(Clone)]
-struct Stage {
+pub struct Stage {
     /// The tempo, in BPM.
     tempo: i32,
     /// Determines if video is on or off.
@@ -553,7 +839,7 @@ struct Stage {
     costume: usize,
     /// The costumes in the stage. These are indexes to the list of costumes in
     /// the program.
-    costumes: Vec<usize>,
+    costumes: Vec<Costume>,
 }
 
 /// This is a target.
@@ -589,7 +875,8 @@ impl Target {
 }
 
 /// The type of thread starter, such as flagClick.
-enum StartType {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StartType {
     FlagClicked,
     KeyPressed,
     SpriteClicked,
@@ -598,9 +885,31 @@ enum StartType {
     RecieveMessage,
     StartAsClone,
     CustomBlock,
+    NoStart,
 }
 
-enum WaitType {
+impl Display for StartType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                StartType::FlagClicked => "StartType::FlagClicked",
+                StartType::KeyPressed => "StartType::KeyPressed",
+                StartType::SpriteClicked => "StartType::SpriteClicked",
+                StartType::BackdropSwitches => "StartType::BackdropSwitches",
+                StartType::LoudnessGreater => "StartType::LoudnessGreater",
+                StartType::RecieveMessage => "StartType::RecieveMessage",
+                StartType::StartAsClone => "StartType::StartAsClone",
+                StartType::CustomBlock => "StartType::CustomBlock",
+                StartType::NoStart => "StartType::NoStart",
+            }
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WaitType {
     /// A specific time.
     Time(u32),
     CustomBlock,
