@@ -1,21 +1,35 @@
-use crate::target::{RotationStyle, Value, VideoState};
+use crate::target::{RotationStyle, VideoState};
 use json::{self, JsonValue};
-use opengl_graphics::CreateTexture;
 use rand::Rng;
 use resvg;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
-use std::fs::File;
+use std::io;
 use std::io::Read;
-use std::io::{self, Cursor};
+use std::path::PathBuf;
 use std::process::{Command, Output};
 use target::StartType;
 use ureq;
 use zip;
 
+use clap::Parser;
+
 mod target;
 pub mod thread;
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    /// The id of the scratch project to compile.
+    id: u64,
+    /// Keep intermediate files (such as project.json and file.sb3)
+    #[arg(short, long)]
+    keep_intermediate_files: bool,
+    /// Directory to put the project in. Defaults to `./output/`
+    #[arg(short, long, value_name = "DIR")]
+    output: Option<PathBuf>,
+}
 
 /// Creates a block reference hashmap.
 /// This translates scratch code to rust code.
@@ -112,14 +126,27 @@ struct CustomBlock {
 }
 
 fn main() {
-    // let file = fs::read_to_string("./project.json").expect("Could not read file");
-    // let project = get_project(String::from("./test_variables.sb3")).unwrap(); // TODO add proper error handling
-    let project = get_project_online(759912461).expect("Could not fetch project"); // TODO add proper error handling
-    std::fs::write("project.json", project.to_string()).expect("Could not write to project.json");
+    let cli = Cli::parse();
+
+    let project = get_project_online(cli.id as u32).expect("Could not fetch project"); // TODO add proper error handling
+    let mut output = match cli.output {
+        Some(o) => o,
+        None => PathBuf::from("./output/"),
+    };
+
+    if cli.keep_intermediate_files {
+        std::fs::write("project.json", project.to_string())
+            .expect("Could not write to project.json");
+    }
     let block_reference = make_blocks_lookup();
-    create_project().expect("Could not create new rust project"); // create a new cargo project
-                                                                  //510186917
-    let filename = "output/src/main.rs";
+    create_project(&output).expect("Could not create new rust project"); // create a new cargo project
+                                                                         //510186917
+    let filename = {
+        let mut f = output.clone();
+        f.push("src");
+        f.push("main.rs");
+        f
+    };
 
     // Get the library file to include
     let lib = include_str!("../target/target.rs");
@@ -128,7 +155,7 @@ fn main() {
 
     for target in project["targets"].members() {
         targets.push(generate_target(target, &block_reference));
-        get_target_assets(target);
+        get_target_assets(target, &output);
     }
 
     let output = format!(
@@ -178,8 +205,8 @@ fn main() {
         // sprite1 = generate_target(&project["targets"][1], &block_reference)
     );
 
-    fs::write(filename, output).expect("Could not write file.");
-    format_file(filename.to_string()).expect("Could not format file.");
+    fs::write(&filename, output).expect("Could not write file.");
+    format_file(&filename).expect("Could not format file.");
 
     // ###############################################
 
@@ -738,13 +765,13 @@ fn fetch_project_token(id: u32) -> Result<String, &'static str> {
 }
 
 /// Formats the given filename with rustfmt.
-fn format_file(filename: String) -> io::Result<Output> {
+fn format_file(filename: &PathBuf) -> io::Result<Output> {
     return Command::new("rustfmt").arg(filename).output();
     //.expect("Could not execute rustfmt");
 }
 
-fn create_project() -> Result<(), io::Error> {
-    Command::new("cargo").arg("new").arg("output").output()?;
+fn create_project(path: &PathBuf) -> Result<(), io::Error> {
+    Command::new("cargo").arg("new").arg(&path).output()?;
 
     let toml = "
     [package]
@@ -762,15 +789,25 @@ fn create_project() -> Result<(), io::Error> {
     resvg = \"0.25.0\"
     ";
 
-    fs::write("output/Cargo.toml", toml)?;
+    let toml_path = {
+        let mut p = path.clone();
+        p.push("Cargo.toml");
+        p
+    };
+    fs::write(toml_path, toml)?;
 
     return Ok(());
 }
 
 /// Download the assets for a target.
-fn get_target_assets(target: &JsonValue) {
+fn get_target_assets(target: &JsonValue, path: &PathBuf) {
     // create the asset directory
-    fs::create_dir_all(format!("output/assets/{}", target["name"])).unwrap();
+    fs::create_dir_all({
+        let mut p = path.clone();
+        p.push("assets");
+        p.push(target["name"].to_string());
+        p
+    });
 
     // iterate through all costumes
     for costume in target["costumes"].members() {
@@ -781,10 +818,13 @@ fn get_target_assets(target: &JsonValue) {
         .call()
         .expect("Could not download asset file");
 
-        let mut file = std::fs::File::create(format!(
-            "output/assets/{}/{}.{}",
-            target["name"], costume["name"], costume["dataFormat"]
-        ))
+        let mut file = std::fs::File::create({
+            let mut p = path.clone();
+            p.push("assets");
+            p.push(target["name"].to_string());
+            p.push(format!("{}.{}", costume["name"], costume["dataFormat"]));
+            p
+        })
         .unwrap();
 
         let mut content = response.into_reader();
