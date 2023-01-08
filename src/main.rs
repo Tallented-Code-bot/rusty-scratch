@@ -2,7 +2,6 @@ use crate::target::{RotationStyle, Value, VideoState};
 use json::{self, JsonValue};
 use opengl_graphics::CreateTexture;
 use rand::Rng;
-use reqwest;
 use resvg;
 use std::collections::HashMap;
 use std::error::Error;
@@ -12,6 +11,7 @@ use std::io::Read;
 use std::io::{self, Cursor};
 use std::process::{Command, Output};
 use target::StartType;
+use ureq;
 use zip;
 
 mod target;
@@ -694,21 +694,25 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
 /// Fetch a scratch sb3 file.
 fn fetch_sb3_file(url: String) -> String {
     // fetch the file,
-    let mut response = reqwest::blocking::get(url).expect("Could not get file.");
+    let response = ureq::get(&url).call().expect("Could not get file"); // TODO better error handling
+
     // create a new file,
     //let mut out=File::create("project.sv3").expect("Could not create file");
     // and copy the contents of the response to the new file.
     //response.copy_to(&mut out);
     // io::copy(&mut response,&mut out)?;
-    return response.text().unwrap();
+    return response.into_string().unwrap();
 }
 
 /// Get the project token for a scratch project.
 fn fetch_project_token(id: u32) -> Result<String, &'static str> {
     let url = format!("https://api.scratch.mit.edu/projects/{id}");
-    let response = reqwest::blocking::get(url).or(Err("Could not get from api"))?;
-
-    let text = response.text().or(Err("Could not get text"))?;
+    let text = match ureq::get(&url).call() {
+        Ok(res) => res
+            .into_string()
+            .expect("Response can be converted to string"),
+        Err(_) => return Err("Could not get from api"),
+    };
 
     let json = json::parse(&text).or(Err("Cannot parse json"))?;
 
@@ -758,10 +762,11 @@ fn get_target_assets(target: &JsonValue) {
 
     // iterate through all costumes
     for costume in target["costumes"].members() {
-        let response = reqwest::blocking::get(format!(
+        let response = ureq::get(&format!(
             "https://assets.scratch.mit.edu/{}",
             costume["md5ext"]
         ))
+        .call()
         .expect("Could not download asset file");
 
         let mut file = std::fs::File::create(format!(
@@ -770,7 +775,7 @@ fn get_target_assets(target: &JsonValue) {
         ))
         .unwrap();
 
-        let mut content = Cursor::new(response.bytes().unwrap());
+        let mut content = response.into_reader();
         std::io::copy(&mut content, &mut file).unwrap();
     }
 }
