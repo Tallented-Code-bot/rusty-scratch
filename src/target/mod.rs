@@ -48,51 +48,142 @@ mod blocks {
         sprite.y += steps * radians.sin();
     }
 
-    pub fn go_to(object: &mut Target, x: f32, y: f32) {
-        if let Some(uo) = &mut object.sprite {
-            uo.x = x;
-            uo.y = y;
+    pub fn go_to(sprite: Rc<Mutex<Sprite>>, x: f32, y: f32) {
+        let mut sprite = sprite.lock().unwrap();
+        sprite.x = x;
+        sprite.y = y;
+    }
+
+    pub fn turn_right(sprite: Rc<Mutex<Sprite>>, degrees: f32) {
+        let mut sprite = sprite.lock().unwrap();
+        sprite.direction += degrees;
+    }
+
+    pub fn turn_left(sprite: Rc<Mutex<Sprite>>, degrees: f32) {
+        let mut sprite = sprite.lock().unwrap();
+        sprite.direction -= degrees;
+    }
+
+    pub fn point_in_direction(sprite: Rc<Mutex<Sprite>>, degrees: f32) {
+        let mut sprite = sprite.lock().unwrap();
+        sprite.direction = degrees;
+    }
+
+    pub fn set_x(sprite: Rc<Mutex<Sprite>>, x: f32) {
+        let mut sprite = sprite.lock().unwrap();
+        sprite.x = x;
+    }
+    pub fn set_y(sprite: Rc<Mutex<Sprite>>, y: f32) {
+        let mut sprite = sprite.lock().unwrap();
+        sprite.y = y;
+    }
+
+    pub fn change_x_by(sprite: Rc<Mutex<Sprite>>, x: f32) {
+        let mut sprite = sprite.lock().unwrap();
+        sprite.x += x;
+    }
+    pub fn change_y_by(sprite: Rc<Mutex<Sprite>>, y: f32) {
+        let mut sprite = sprite.lock().unwrap();
+        sprite.y += y;
+    }
+
+    /// Switch the backdrop.
+    ///
+    /// Value can either be a number or string. Numbers are treated as indexes,
+    /// while strings are first treated as costume names, then
+    /// previous/next/random costume, and finaly cast to numbers and tested as indexes.
+    pub fn switch_backdrop(stage: Rc<Mutex<Stage>>, backdrop: Value) {
+        let mut stage = stage.lock().unwrap();
+
+        match backdrop {
+            Value::Num(x) => stage.set_costume(x - 1.0),
+            Value::String(name) => {
+                let current_costume = stage.costume;
+
+                let index = stage.costumes.iter().position(|c| c.name == name);
+                if index.is_some() {
+                    stage.set_costume(index.expect("Must be some") as f32);
+                } else if name == "next backdrop" {
+                    stage.set_costume(current_costume as f32 + 1.0);
+                } else if name == "previous backdrop" {
+                    stage.set_costume(current_costume as f32 - 1.0);
+                } else if name == "random backdrop" {
+                    if !stage.costumes.len() > 1 {
+                        let mut newIndex: usize = stage.costume;
+                        // generate a random costume, not including the current costume.
+                        while newIndex == stage.costume {
+                            newIndex =
+                                generate_random(0.into(), stage.costumes.len().into()).into();
+                        }
+                        stage.set_costume(newIndex as f32);
+                    }
+                // try to cast the string into a number and use it as an index.
+                } else if let Ok(index) = name.parse::<f32>() {
+                    stage.set_costume(index);
+                } else {
+                    // do nothing
+                }
+            }
+            Value::Bool(_) => unreachable!("Bool not supported"),
+            Value::Null => unreachable!("Null not supported"),
+        };
+    }
+
+    pub fn next_backdrop(stage: Rc<Mutex<Stage>>) {
+        switch_backdrop(stage, Value::String("next backdrop".to_string()));
+    }
+
+    /// Switch the current costume.
+    ///
+    /// Number values are treated as indexes. String values are first treated as
+    /// costume names and then are attempted to be parsed as indexes.
+    pub fn switch_costume(sprite: Rc<Mutex<Sprite>>, costume: Value) {
+        let mut sprite = sprite.lock().unwrap();
+        match costume {
+            Value::Num(index) => sprite.set_costume(index - 1.0),
+            Value::String(name) => {
+                let current_costume = sprite.costume as f32;
+                if let Some(index) = sprite.costumes.iter().position(|c| c.name == name) {
+                    sprite.set_costume(index as f32);
+                } else if name == "next costume" {
+                    sprite.set_costume(current_costume + 1.0);
+                } else if name == "previous costume" {
+                    sprite.set_costume(current_costume - 1.0);
+                } else if let Ok(index) = name.parse::<f32>() {
+                    sprite.set_costume(index);
+                }
+            }
+            Value::Bool(_) => unreachable!("Bool not supported"),
+            Value::Null => unreachable!("Null not supported"),
         }
     }
 
-    pub fn turn_right(object: &mut Target, degrees: f32) {
-        if let Some(uo) = &mut object.sprite {
-            uo.direction += degrees;
-        }
+    pub fn next_costume(sprite: Rc<Mutex<Sprite>>) {
+        switch_costume(sprite, Value::String("next costume".to_string()));
+    }
+    pub fn previous_costume(sprite: Rc<Mutex<Sprite>>) {
+        switch_costume(sprite, Value::String("previous costume".to_string()));
     }
 
-    pub fn turn_left(object: &mut Target, degrees: f32) {
-        if let Some(uo) = &mut object.sprite {
-            uo.direction -= degrees;
-        }
+    pub fn set_size(sprite: Rc<Mutex<Sprite>>, size: Value) {
+        let mut sprite = sprite.lock().unwrap();
+
+        sprite.size = size.into();
     }
 
-    pub fn point_in_direction(object: &mut Target, degrees: f32) {
-        if let Some(uo) = &mut object.sprite {
-            uo.direction = degrees;
-        }
+    pub fn change_size(sprite: Rc<Mutex<Sprite>>, change: Value) {
+        let mut sprite = sprite.lock().unwrap();
+        sprite.size += <Value as Into<f32>>::into(change);
     }
 
-    pub fn set_x(object: &mut Target, x: f32) {
-        if let Some(uo) = &mut object.sprite {
-            uo.x = x;
-        }
-    }
-    pub fn set_y(object: &mut Target, y: f32) {
-        if let Some(uo) = &mut object.sprite {
-            uo.y = y;
-        }
+    pub fn show(sprite: Rc<Mutex<Sprite>>) {
+        let mut sprite = sprite.lock().unwrap();
+        sprite.visible = true;
     }
 
-    pub fn change_x_by(object: &mut Target, x: f32) {
-        if let Some(uo) = &mut object.sprite {
-            uo.x += x;
-        }
-    }
-    pub fn change_y_by(object: &mut Target, y: f32) {
-        if let Some(uo) = &mut object.sprite {
-            uo.y += y;
-        }
+    pub fn hide(sprite: Rc<Mutex<Sprite>>) {
+        let mut sprite = sprite.lock().unwrap();
+        sprite.visible = false;
     }
 
     /// Get a variable from an id.
@@ -245,21 +336,34 @@ impl Default for Value {
     }
 }
 
-impl Into<u32> for Value {
-    fn into(self) -> u32 {
-        match self {
-            Self::String(_) => 0,
-            Self::Bool(x) => x as u32,
-            Self::Null => 0,
-            Self::Num(x) => {
-                if x.is_nan() {
-                    return 0;
+/// A macro to convert Values to numbers
+macro_rules! value_into {
+    ($t:ident) => {
+        impl Into<$t> for Value {
+            fn into(self) -> $t {
+                match self {
+                    Self::String(_) => 0 as $t,
+                    Self::Bool(x) => match x {
+                        true => 1 as $t,
+                        false => 0 as $t,
+                    },
+                    Self::Null => 0 as $t,
+                    Self::Num(x) => {
+                        if x.is_nan() {
+                            return 0 as $t;
+                        }
+                        x as $t
+                    }
                 }
-                x as u32
             }
         }
-    }
+    };
 }
+
+value_into!(u32);
+value_into!(usize);
+value_into!(f32);
+value_into!(i32);
 
 impl From<f32> for Value {
     fn from(item: f32) -> Self {
@@ -436,6 +540,21 @@ pub struct Sprite {
     costumes: Vec<Costume>,
 }
 
+impl Sprite {
+    fn set_costume(&mut self, mut index: f32) {
+        // round the index to a whole number
+        index = index.round();
+
+        if index.is_infinite() || index.is_nan() {
+            index = 0.0;
+        }
+
+        index = index.clamp(0.0, self.costumes.len() as f32 - 1.0); // make sure the index is valid
+
+        self.costume = index as usize;
+    }
+}
+
 /// A costume or backdrop
 pub struct Costume {
     name: String,
@@ -446,9 +565,9 @@ pub struct Costume {
 }
 
 impl Costume {
-    fn new(path: PathBuf, scale: f32) -> Result<Self, &'static str> {
+    fn new(name: String, path: PathBuf, scale: f32) -> Result<Self, &'static str> {
         let texture = get_texture_from_path(path.clone(), scale)?;
-        let name = path.file_stem().unwrap().to_str().unwrap().to_string();
+        //let name = path.file_stem().unwrap().to_str().unwrap().to_string();
 
         Ok(Self {
             name,
@@ -840,6 +959,21 @@ pub struct Stage {
     /// The costumes in the stage. These are indexes to the list of costumes in
     /// the program.
     costumes: Vec<Costume>,
+}
+
+impl Stage {
+    fn set_costume(&mut self, mut index: f32) {
+        // round the index to a whole number
+        index = index.round();
+
+        if index.is_infinite() || index.is_nan() {
+            index = 0.0;
+        }
+
+        index = index.clamp(0.0, self.costumes.len() as f32 - 1.0); // make sure the index is valid
+
+        self.costume = index as usize;
+    }
 }
 
 /// This is a target.

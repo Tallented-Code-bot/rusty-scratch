@@ -34,19 +34,20 @@ pub mod thread;
 /// ```
 fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
     let mut blocks: HashMap<&str, &str> = HashMap::new();
-    blocks.insert("motion_setx", "set_x(&mut object,Xf32);");
-    blocks.insert("motion_sety", "set_y(&mut object,Yf32)");
-    blocks.insert("motion_changexby", "change_x_by(&mut object,DXf32)");
-    blocks.insert("motion_changeyby", "change_y_by(&mut object,DYf32);");
+    blocks.insert("motion_setx", "set_x(sprite.clone(),Xf32);");
+    blocks.insert("motion_sety", "set_y(sprite.clone(),Yf32)");
+    blocks.insert("motion_changexby", "change_x_by(sprite.clone(),DXf32)");
+    blocks.insert("motion_changeyby", "change_y_by(sprite.clone(),DYf32);");
     // blocks.insert("motion_movesteps", "object.move_steps(STEPSf32);");
     blocks.insert("motion_movesteps", "move_steps(sprite.clone(),STEPSf32);");
-    blocks.insert("motion_turnleft", "turn_left(&mut object,DEGREESf32)");
-    blocks.insert("motion_turnright", "turn_right(&mut object,DEGREESf32)");
-    blocks.insert("motion_gotoxy", "go_to(&mut object,Xf32,Yf32)");
+    blocks.insert("motion_turnleft", "turn_left(sprite.clone(),DEGREESf32)");
+    blocks.insert("motion_turnright", "turn_right(sprite.clone(),DEGREESf32)");
+    blocks.insert("motion_gotoxy", "go_to(sprite.clone(),Xf32,Yf32)");
     blocks.insert(
         "motion_pointindirection",
-        "point_in_direction(&mut object,DIRECTIONf32)",
+        "point_in_direction(sprite.clone(),DIRECTIONf32)",
     );
+    blocks.insert("motion_setrotationstyle", "set_rotation_style(STYLE)");
     blocks.insert("event_whenflagclicked", "flag_clicked();");
     blocks.insert(
         "control_repeat",
@@ -63,6 +64,17 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
 
     // blocks.insert("looks_say", "object.say(String::from(\"MESSAGE\"));");
     blocks.insert("looks_say", "say(Value::from(MESSAGE));");
+    blocks.insert(
+        "looks_switchbackdropto",
+        "switch_backdrop(stage.clone(),BACKDROP)",
+    );
+    blocks.insert("looks_nextcostume", "next_costume(sprite.clone());");
+    blocks.insert(
+        "looks_switchcostume",
+        "switch_costume(sprite.clone(),COSTUME);",
+    );
+    blocks.insert("looks_show", "show(sprite.clone());");
+    blocks.insert("looks_hide", "hide(sprite.clone());");
     blocks.insert("event_whenflagclicked", "");
     // blocks.insert(
     //     "data_variable",
@@ -793,6 +805,7 @@ fn target_costumes(target: &JsonValue) -> String {
         } else {
             stage_or_sprite = "sprite";
         }
+        let costume_name = costume["name"].to_string();
 
         // TODO handle png files properly
         if format != "svg" {
@@ -802,7 +815,7 @@ fn target_costumes(target: &JsonValue) -> String {
         //                                 Costume::new(PathBuf::from(\"assets/{name}/{costumename}.{format}\"),1.0).unwrap(),
         //                                 &mut {name}
         //                             );\n"));
-        to_return.push_str(&format!(".add_costume(Costume::new(PathBuf::from(\"assets/{name}/{costumename}.{format}\"),1.0).unwrap())\n"))
+        to_return.push_str(&format!(".add_costume(Costume::new(String::from(\"{costume_name}\"),PathBuf::from(\"assets/{name}/{costumename}.{format}\"),1.0).unwrap())\n"))
     }
 
     return to_return;
