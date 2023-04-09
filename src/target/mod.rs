@@ -7,51 +7,108 @@
 )]
 
 extern crate rand;
+use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use core::task::{RawWaker, RawWakerVTable, Waker};
 use genawaiter::rc::{gen, Co};
 use genawaiter::{yield_, GeneratorState};
-use glutin_window::GlutinWindow as Window;
+use glutin_window::GlutinWindow;
 use graphics::types::{Matrix2d, Scalar};
 use graphics::{rectangle, Context as DrawingContext, Image};
 use opengl_graphics::{GlGraphics, OpenGL, Texture, TextureSettings};
 use piston::event_loop::{EventLoop, EventSettings, Events};
-use piston::input::{RenderArgs, RenderEvent, UpdateArgs, UpdateEvent};
+use piston::input::{Button, Key, RenderArgs, RenderEvent, UpdateArgs, UpdateEvent};
 use piston::window::WindowSettings;
+use piston::Window;
+use piston::{MouseButton, MouseCursorEvent, PressEvent, ReleaseEvent, Size as WindowSize};
 use rand::Rng;
 use std::fmt::Display;
 use std::fs;
+use std::io;
+use std::ops::Index;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::{
     boxed::Box,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     f32::consts::PI,
     future::{Future, IntoFuture},
     path::{Path, PathBuf},
     rc::Rc,
     sync::Mutex,
+    time::{Duration, Instant},
 };
 
 use blocks::*;
 
+// set the width and height of the stage here
+const SCRATCH_WIDTH: Value = Value::Num(480.0);
+const SCRATCH_HALF_WIDTH: Value = Value::Num(240.0);
+const SCRATCH_HEIGHT: Value = Value::Num(360.0);
+const SCRATCH_HALF_HEIGHT: Value = Value::Num(180.0);
+
+const LIST_ITEM_LIMIT: Value = Value::Num(20000.0); // TODO check this
+
 mod blocks {
+    use super::{toNumber, Stamp, LIST_ITEM_LIMIT, SCRATCH_HALF_HEIGHT, SCRATCH_HALF_WIDTH};
+    use chrono::TimeZone;
     use rand::Rng;
-
-    use super::{Sprite, Stage, Target, Value, Yield};
+    use std::io;
+    use super::{Keyboard, Sprite, Stage, Target, Value, Yield};
     use core::f32::consts::PI;
-    use std::{rc::Rc, sync::Mutex};
+    use std::{
+        f32::consts::E,
+        rc::Rc,
+        sync::{Mutex, MutexGuard},
+    };
 
-    pub fn move_steps(sprite: Rc<Mutex<Sprite>>, steps: f32) {
+    pub fn move_steps(sprite: Rc<Mutex<Sprite>>, steps: Value) {
+        let steps = toNumber(&steps);
+
         let mut sprite = sprite.lock().unwrap(); //shadow
         let radians = (90.0 - sprite.direction) * PI / 180.0;
         sprite.x += steps * radians.cos();
         sprite.y += steps * radians.sin();
     }
 
-    pub fn go_to(sprite: Rc<Mutex<Sprite>>, x: f32, y: f32) {
+    pub fn go_to_xy(sprite: Rc<Mutex<Sprite>>, x: Value, y: Value) {
         let mut sprite = sprite.lock().unwrap();
+
+        let x = toNumber(&x);
+        let y = toNumber(&y);
+
         sprite.x = x;
         sprite.y = y;
+    }
+
+    pub fn get_target_xy(targetName: Value, stage: Rc<Mutex<Stage>>) -> Option<(Value, Value)> {
+        let (targetX, targetY);
+        let stage = stage.lock().unwrap();
+        if targetName == Value::String(String::from("_mouse_")) {
+            targetX = stage.mouse.x();
+            targetY = stage.mouse.y();
+        } else if targetName == Value::String(String::from("_random_")) {
+            targetX = generate_random(-SCRATCH_HALF_WIDTH, SCRATCH_HALF_WIDTH);
+            targetY = generate_random(-SCRATCH_HALF_HEIGHT, SCRATCH_HALF_HEIGHT);
+        } else {
+            let name: String = targetName.into();
+
+            if let Some(sprite) = stage.get_sprite(name) {
+                let sprite = sprite.lock().unwrap();
+                targetX = Value::Num(sprite.x);
+                targetY = Value::Num(sprite.y);
+            } else {
+                return None;
+            }
+        }
+        return Some((targetX, targetY));
+    }
+
+    pub fn go_to(sprite: Rc<Mutex<Sprite>>, stage: Rc<Mutex<Stage>>, to: Value) {
+        let mut sprite = sprite.lock().unwrap();
+        if let Some((x, y)) = get_target_xy(to, stage) {
+            sprite.x = x.into();
+            sprite.y = y.into();
+        }
     }
 
     pub fn turn_right(sprite: Rc<Mutex<Sprite>>, degrees: f32) {
@@ -69,22 +126,46 @@ mod blocks {
         sprite.direction = degrees;
     }
 
-    pub fn set_x(sprite: Rc<Mutex<Sprite>>, x: f32) {
+    pub fn set_x(sprite: Rc<Mutex<Sprite>>, x: Value) {
         let mut sprite = sprite.lock().unwrap();
-        sprite.x = x;
+        let dx = toNumber(&x);
+        sprite.x = dx;
     }
-    pub fn set_y(sprite: Rc<Mutex<Sprite>>, y: f32) {
+    pub fn set_y(sprite: Rc<Mutex<Sprite>>, y: Value) {
         let mut sprite = sprite.lock().unwrap();
-        sprite.y = y;
+        let dy = toNumber(&y);
+        sprite.y = dy;
     }
 
-    pub fn change_x_by(sprite: Rc<Mutex<Sprite>>, x: f32) {
-        let mut sprite = sprite.lock().unwrap();
-        sprite.x += x;
+    pub fn get_x(sprite: Rc<Mutex<Sprite>>) -> Value {
+        Value::Num(sprite.lock().unwrap().x)
     }
-    pub fn change_y_by(sprite: Rc<Mutex<Sprite>>, y: f32) {
+
+    pub fn get_y(sprite: Rc<Mutex<Sprite>>) -> Value {
+        Value::Num(sprite.lock().unwrap().y)
+    }
+
+    pub fn change_x_by(sprite: Rc<Mutex<Sprite>>, x: Value) {
         let mut sprite = sprite.lock().unwrap();
-        sprite.y += y;
+        let dx = toNumber(&x);
+        sprite.x += dx;
+    }
+    pub fn change_y_by(sprite: Rc<Mutex<Sprite>>, y: Value) {
+        let mut sprite = sprite.lock().unwrap();
+        let dy = toNumber(&y);
+        sprite.y += dy;
+    }
+
+    pub fn set_rotation_style(sprite: Rc<Mutex<Sprite>>, style: String) {
+        use super::RotationStyle;
+        let mut sprite = sprite.lock().unwrap();
+
+        sprite.rotation_style = match &*style {
+            "left-right" => RotationStyle::LeftRight,
+            "don\'t rotate" => RotationStyle::DontRotate,
+            "all around" => RotationStyle::AllAround,
+            _ => unreachable!("Unknown rotation option"),
+        }
     }
 
     /// Switch the backdrop.
@@ -217,6 +298,402 @@ mod blocks {
         }
     }
 
+    pub fn set_variable(
+        sprite: Option<Rc<Mutex<Sprite>>>,
+        stage: Rc<Mutex<Stage>>,
+        (name, id): (String, String),
+        value: Value,
+    ) {
+        let mut stage = stage.lock().unwrap();
+        match sprite {
+            Some(sprite) => {
+                let mut sprite = sprite.lock().unwrap();
+                if let Some(variable) = sprite.variables.get_mut(&id) {
+                    variable.1 = value;
+                } else if let Some(variable) = stage.variables.get_mut(&id) {
+                    variable.1 = value;
+                } else {
+                    sprite.variables.insert(id, (name, value));
+                }
+            }
+            None => {
+                if let Some(variable) = stage.variables.get_mut(&id) {
+                    variable.1 = value;
+                } else {
+                    stage.variables.insert(id, (name, value));
+                }
+            }
+        }
+    }
+
+    pub fn change_variable(
+        sprite: Option<Rc<Mutex<Sprite>>>,
+        stage: Rc<Mutex<Stage>>,
+        (name, id): (String, String),
+        value: Value,
+    ) {
+        set_variable(
+            sprite.clone(),
+            stage.clone(),
+            (name, id.clone()),
+            get_variable(sprite, stage, &id) + value,
+        );
+    }
+
+    /// Get a list.
+    fn get_list(
+        sprite: Option<Rc<Mutex<Sprite>>>,
+        stage: Rc<Mutex<Stage>>,
+        (name, id): (String, String),
+    ) -> Vec<Value> {
+        let mut stage = stage.lock().unwrap();
+        let list;
+        match sprite {
+            Some(sprite) => {
+                let mut sprite = sprite.lock().unwrap();
+                if let Some(l) = sprite.lists.get(&id) {
+                    list = l.clone();
+                } else if let Some(l) = stage.lists.get(&id) {
+                    list = l.clone();
+                } else {
+                    stage.lists.insert(id.clone(), (name, Vec::new()));
+                    list = stage.lists.get(&id).expect("Just created id").clone();
+                }
+            }
+            None => {
+                if let Some(l) = stage.lists.get(&id) {
+                    list = l.clone();
+                } else {
+                    stage.lists.insert(id.clone(), (name, Vec::new()));
+                    list = stage.lists.get(&id).expect("Just created id").clone();
+                }
+            }
+        }
+
+        return list.1;
+    }
+
+    fn replace_list(
+        sprite: Option<Rc<Mutex<Sprite>>>,
+        stage: Rc<Mutex<Stage>>,
+        to_replace: Vec<Value>,
+        (name, id): (String, String),
+    ) {
+        let mut stage = stage.lock().unwrap();
+
+        match sprite {
+            Some(sprite) => {
+                let mut sprite = sprite.lock().unwrap();
+                if let Some(l) = sprite.lists.get_mut(&id) {
+                    l.1 = to_replace;
+                } else if let Some(l) = stage.lists.get_mut(&id) {
+                    l.1 = to_replace;
+                } else {
+                    stage.lists.insert(id.clone(), (name, Vec::new()));
+                    stage.lists.get_mut(&id).expect("Just created id").1 = to_replace;
+                }
+            }
+            None => {
+                if let Some(l) = stage.lists.get_mut(&id) {
+                    l.1 = to_replace;
+                } else {
+                    stage.lists.insert(id.clone(), (name, Vec::new()));
+                    stage.lists.get_mut(&id).expect("Just created id").1 = to_replace;
+                }
+            }
+        }
+    }
+
+    /// Get a list in a single value, suitable for printing.
+    pub fn get_list_contents(
+        sprite: Option<Rc<Mutex<Sprite>>>,
+        stage: Rc<Mutex<Stage>>,
+        (name, id): (String, String),
+    ) -> Value {
+        let list = get_list(sprite, stage, (name, id));
+
+        // check if the list is all single letters.  If it is, return
+        // the list without separators.  If it is not, join them with a space.
+        let mut all_single_letters = true;
+        for i in &list {
+            if let Value::String(x) = i {
+                if x.len() > 1 {
+                    all_single_letters = false;
+                    break;
+                }
+            }
+        }
+
+        if all_single_letters {
+            // join the list items together with no space
+            return Value::String(
+                list.iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<String>>()
+                    .join(""),
+            );
+        } else {
+            // join the list items together with a space in between
+            return Value::String(
+                list.iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<String>>()
+                    .join(" "),
+            );
+        }
+    }
+
+    pub fn get_item_of_list(
+        sprite: Option<Rc<Mutex<Sprite>>>,
+        stage: Rc<Mutex<Stage>>,
+        item: Value,
+        (name, id): (String, String),
+    ) -> Value {
+        let list = get_list(sprite, stage, (name, id));
+
+        let index = item.to_list_index(list.len(), false);
+
+        match index {
+            Ok(i) => list[i - 1].clone(),
+            Err(_) => Value::String(String::from("")),
+        }
+    }
+
+    pub fn length_of_list(
+        sprite: Option<Rc<Mutex<Sprite>>>,
+        stage: Rc<Mutex<Stage>>,
+        (name, id): (String, String),
+    ) -> Value {
+        let list = get_list(sprite, stage, (name, id));
+        return Value::Num(list.len() as f32);
+    }
+
+    pub fn get_item_num_in_list(
+        sprite: Option<Rc<Mutex<Sprite>>>,
+        stage: Rc<Mutex<Stage>>,
+        item: Value,
+        (name, id): (String, String),
+    ) -> Value {
+        let list = get_list(sprite, stage, (name, id));
+
+        for (i, value) in list.iter().enumerate() {
+            if *value == item {
+                return Value::Num((i - 1) as f32);
+            }
+        }
+        return Value::Num(0 as f32);
+    }
+
+    pub fn list_contains_item(
+        sprite: Option<Rc<Mutex<Sprite>>>,
+        stage: Rc<Mutex<Stage>>,
+        (name, id): (String, String),
+        search: Value,
+    ) -> Value {
+        let list = get_list(sprite, stage, (name, id));
+
+        for item in list {
+            if item == search {
+                return Value::Bool(true);
+            }
+        }
+        return Value::Bool(false);
+    }
+
+    /// Get a mutable reference to a list in the sprite or stage.
+    /*fn get_mut_list<'a>(sprite:Option<&'a mut MutexGuard<'a, Sprite>>,stage:&'a mut MutexGuard<'a, Stage>,(name,id):(String,String))-> &'a mut (String,Vec<Value>){
+        match sprite{
+            // if a sprite is specified:
+            Some(mut sprite) => {
+                if let Some(l) = sprite.lists.get_mut(&id){
+                    // if the list exists in the sprite, return it.
+                    return l;
+                }else if let Some(l) =stage.lists.get_mut(&id){
+                    // otherwise, look in the stage, and if the stage has it, return it.
+                    return l;
+                }else{
+                    // else create a new list in the sprite, and return it.
+                    stage.lists.insert(id.clone(),(name,Vec::new()));
+                    return stage.lists.get_mut(&id).expect("Just created id");
+                }
+            },
+            None => {
+                // if a sprite is not specified:
+                if let Some(l) = stage.lists.get_mut(&id){
+                    // check if the list exists in the stage, and if so, return it.
+                    return l;
+                }else{
+                    // otherwise create a new list in the stage and return it.
+                    stage.lists.insert(id.clone(),(name,Vec::new()));
+                    return stage.lists.get_mut(&id).expect("Just created id");
+                }
+            },
+        }
+
+    }*/
+
+    pub fn add_to_list(
+        sprite: Option<Rc<Mutex<Sprite>>>,
+        stage: Rc<Mutex<Stage>>,
+        to_add: Value,
+        (name, id): (String, String),
+    ) {
+        let mut stage = stage.lock().unwrap();
+        match sprite {
+            Some(sprite) => {
+                let mut sprite = sprite.lock().unwrap();
+                if let Some(l) = sprite.lists.get_mut(&id) {
+                    l.1.push(to_add);
+                } else if let Some(l) = stage.lists.get_mut(&id) {
+                    l.1.push(to_add);
+                } else {
+                    stage.lists.insert(id.clone(), (name, Vec::new()));
+                    let l = stage.lists.get_mut(&id).expect("Just created id");
+                    l.1.push(to_add);
+                }
+            }
+            None => {
+                if let Some(l) = stage.lists.get_mut(&id) {
+                    l.1.push(to_add);
+                } else {
+                    stage.lists.insert(id.clone(), (name, Vec::new()));
+                    let l = stage.lists.get_mut(&id).expect("Just created id");
+                    l.1.push(to_add);
+                }
+            }
+        }
+    }
+
+    /// Delete an item from a list
+    pub fn delete_from_list(
+        sprite: Option<Rc<Mutex<Sprite>>>,
+        stage: Rc<Mutex<Stage>>,
+        item: Value,
+        (name, id): (String, String),
+    ) {
+        let mut list = get_list(sprite.clone(), stage.clone(), (name.clone(), id.clone()));
+        let index = item.to_list_index(list.len(), true);
+
+        // TODO handle deleting all of the list. (This is not supported yet in the .to_list_index() function).
+        match index {
+            Ok(x) => {
+                list.remove(x - 1);
+                replace_list(sprite, stage, list, (name, id));
+            }
+            Err(_) => {
+                return;
+            }
+        }
+    }
+
+    pub fn delete_all_of_list(
+        sprite: Option<Rc<Mutex<Sprite>>>,
+        stage: Rc<Mutex<Stage>>,
+        (name, id): (String, String),
+    ) {
+        replace_list(sprite, stage, Vec::new(), (name, id));
+    }
+
+    pub fn insert_item_in_list(
+        sprite: Option<Rc<Mutex<Sprite>>>,
+        stage: Rc<Mutex<Stage>>,
+        item: Value,
+        position: Value,
+        (name, id): (String, String),
+    ) {
+        let mut list = get_list(sprite.clone(), stage.clone(), (name.clone(), id.clone()));
+        let index = position.to_list_index(list.len() + 1, false);
+
+        match index {
+            Ok(x) => {
+                if x > LIST_ITEM_LIMIT.into() {
+                    return;
+                }
+
+                list.insert(x - 1, item);
+
+                if list.len() > LIST_ITEM_LIMIT.into() {
+                    list.pop();
+                }
+
+                replace_list(sprite, stage, list, (name, id));
+            }
+            Err(_) => {
+                return;
+            }
+        }
+    }
+
+    pub fn replace_item_in_list(
+        sprite: Option<Rc<Mutex<Sprite>>>,
+        stage: Rc<Mutex<Stage>>,
+        item: Value,
+        position: Value,
+        (name, id): (String, String),
+    ) {
+        let mut list = get_list(sprite.clone(), stage.clone(), (name.clone(), id.clone()));
+        let index = position.to_list_index(list.len(), false);
+
+        match index {
+            Ok(x) => {
+                list[x - 1] = item;
+                replace_list(sprite, stage, list, (name, id));
+            }
+            Err(_) => {
+                return;
+            }
+        }
+    }
+
+    /// Get a list from the sprite or stage.
+    ///
+    /// For example:
+    /// ```
+    /// fn process_list(sprite:Option<Rc<Mutex<Sprite>>>, stage:Rc<Mutex<Stage>>) {
+    ///     let list:&mut (String,Vec<Value>) = get_list!(sprite,stage);
+    /// }
+    /// ```
+    macro_rules! get_list {
+        ( $sprite:expr, $stage:expr, $id:expr, $name:expr) => {{
+            let mut stage = $stage.lock().unwrap();
+            let list;
+            match $sprite {
+                // if a sprite is specified:
+                Some(sprite) => {
+                    let mut sprite = sprite.lock().unwrap();
+                    if let Some(l) = sprite.lists.get_mut(&$id) {
+                        // if the list exists in the sprite, return it.
+                        //return
+                        list = l
+                    } else if let Some(l) = stage.lists.get_mut(&$id) {
+                        // otherwise, look in the stage, and if the stage has it, return it.
+                        //return
+                        list = l
+                    } else {
+                        // else create a new list in the sprite, and return it.
+                        stage.lists.insert($id.clone(), ($name, Vec::new()));
+                        //return
+                        list = stage.lists.get_mut(&$id).expect("Just created id")
+                    }
+                }
+                None => {
+                    // if a sprite is not specified:
+                    if let Some(l) = stage.lists.get_mut(&$id) {
+                        // check if the list exists in the stage, and if so, return it.
+                        //return
+                        list = l
+                    } else {
+                        // otherwise create a new list in the stage and return it.
+                        stage.lists.insert($id.clone(), ($name, Vec::new()));
+                        //return
+                        list = stage.lists.get_mut(&$id).expect("Just created id")
+                    }
+                }
+            };
+            list
+        }};
+    }
+
     /// Set the costume.
     ///
     /// DEPRECATED
@@ -240,24 +717,80 @@ mod blocks {
     }
 
     /// Join two strings.
-    pub fn join(a: String, b: String) -> String {
-        format!("{a}{b}")
+    pub fn join(a: Value, b: Value) -> Value {
+        Value::String(format!("{}{}", a.to_string(), b.to_string()))
     }
 
-    /// Get the length of a string.
-    pub fn length(s: String) -> usize {
-        s.len()
+    pub fn letter_of(letter: Value, string: Value) -> Value {
+        let mut index: usize = letter.into();
+        index -= 1;
+        let s: String = string.into();
+
+        return Value::from(s.chars().nth(index).unwrap());
     }
 
-    /// Round a number.
-    pub fn round(s: f32) -> f32 {
-        s.round()
+    pub fn length(string: Value) -> Value {
+        Value::Num(string.to_string().len() as f32)
+    }
+
+    pub fn contains(string1: Value, string2: Value) -> Value {
+        Value::Bool(
+            string1
+                .to_string()
+                .to_lowercase()
+                .contains(string2.to_string().to_lowercase().as_str()),
+        )
+    }
+
+    pub fn round(num: Value) -> Value {
+        let n: f32 = num.into();
+        return Value::Num(n.round());
+    }
+
+    pub fn modulus(num1: Value, num2: Value) -> Value {
+        let n: f32 = num1.into();
+        let modulus: f32 = num2.into();
+        return Value::Num(n % modulus);
+    }
+
+    pub fn mathop(operator: Value, num: Value) -> Value {
+        let n: f32 = num.into();
+        let op: String = operator.into();
+
+        let output = match &*op {
+            "abs" => n.abs(),
+            "floor" => n.floor(),
+            "ceiling" => n.ceil(),
+            "sqrt" => n.sqrt(),
+            "sin" => n.to_radians().sin(),
+            "cos" => n.to_radians().cos(),
+            "tan" => n.to_radians().tan(),
+            "asin" => n.asin().to_degrees(),
+            "acos" => n.acos().to_degrees(),
+            "atan" => n.atan().to_degrees(),
+            "ln" => n.ln(),
+            "log" => n.log(10.0),
+            "e ^" => n.exp(),
+            "10 ^" => 10f32.powf(n),
+            _ => 0.0,
+        };
+
+        Value::Num(output)
     }
 
     /// Wait until condition is true.
-    pub async fn wait_until(condition: bool) {
-        while !condition {
-            Yield::Start.await;
+    pub async fn wait_until<F>(condition: F)
+    where
+        F: Fn() -> Value,
+    {
+        if let Value::Bool(c) = condition() {
+            println!("START WAITING");
+            while !c {
+                println!("STILL WAITING");
+                Yield::Start.await;
+            }
+        } else {
+            println!("INVALID WAIT");
         }
     }
 
@@ -266,6 +799,72 @@ mod blocks {
         let to: u32 = to.into();
         let r = rand::thread_rng().gen_range(from..=to);
         Value::Num(r as f32)
+    }
+
+    pub fn key_pressed(stage: Rc<Mutex<Stage>>, key: Value) -> Value {
+        let mut stage = stage.lock().unwrap();
+        let to_return = stage.keyboard.get_key_down(key);
+        Value::Bool(to_return)
+    }
+
+    pub fn ask(stage:Rc<Mutex<Stage>>,string:Value){
+        println!("{}",string);
+        let mut buffer = String::new();
+        let stdin = io::stdin();
+        stdin.read_line(&mut buffer).expect("Input should not fail");
+
+        let mut stage = stage.lock().unwrap(); 
+        stage.set_answer(Value::from(buffer));
+    }
+
+    pub fn answer(stage:Rc<Mutex<Stage>>)->Value{
+        let stage = stage.lock().unwrap();
+        return stage.get_answer();
+    }
+
+    /// Calculate the days since 2000.
+    ///
+    /// BUG Is not completely precise, seems to be off by a few days.
+    pub fn days_since_2000() -> Value {
+        //let start = chrono::Utc;
+        let start = chrono::Utc.with_ymd_and_hms(2000, 1, 1, 0, 0, 0).unwrap();
+        let now = chrono::Utc::now();
+        let diff = now - start;
+
+        let days = diff.num_days();
+        let remainder = diff - chrono::Duration::days(days);
+
+        let to_return = days as f32
+            + (remainder.num_hours() as f32 / 24.0)
+            + (remainder.num_minutes() as f32 / (24.0 * 60.0))
+            + (remainder.num_seconds() as f32 / (24.0 * 60.0 * 60.0))
+            + (remainder.num_milliseconds() as f32 / (24.0 * 60.0 * 60.0 * 1000.0));
+
+        return Value::Num(to_return);
+    }
+
+    pub fn username() -> Value {
+        Value::String(String::from("Test username"))
+    }
+
+    pub fn clear_pen(stage: Rc<Mutex<Stage>>) {
+        let mut stage = stage.lock().unwrap();
+
+        stage.stamps.clear();
+    }
+
+    pub fn stamp(sprite: Rc<Mutex<Sprite>>, stage: Rc<Mutex<Stage>>) {
+        let mut stage = stage.lock().unwrap();
+
+        let mut sprite_lock = sprite.lock().unwrap();
+
+        stage.stamps.push(Stamp {
+            x: sprite_lock.x,
+            y: sprite_lock.y,
+            costume: sprite_lock.costume,
+            size: sprite_lock.size,
+            sprite: sprite.clone(),
+        });
     }
 }
 
@@ -322,12 +921,85 @@ impl VideoState {
 /// A value, for a variable, list, or something else.
 ///
 /// This can represent either a number or a string.
-#[derive(Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Num(f32),
     String(String),
     Bool(bool),
     Null,
+}
+
+impl Value {
+    fn to_list_index(self, length: usize, acceptAll: bool) -> Result<usize, ()> {
+        if let Value::String(x) = &self {
+            if x == "all" {
+                if acceptAll {
+                    unimplemented!("Return all not implemented yet");
+                } else {
+                    return Err(());
+                }
+            }
+            if x == "last" {
+                if length > 0 {
+                    return Ok(length);
+                }
+                return Err(());
+            }
+            if x == "random" || x == "any" {
+                if length > 0 {
+                    return Ok(generate_random(1.into(), length.into()).into());
+                }
+                return Err(());
+            }
+        }
+        let index: usize = self.into();
+        if index < 1 || index > length {
+            return Err(());
+        }
+        return Ok(index);
+    }
+}
+
+impl PartialOrd for Value {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        use std::cmp::Ordering as O;
+
+        let mut n1 = Number(self);
+        let mut n2 = Number(other);
+
+        if let Value::String(x) = self {
+            if x.trim().is_empty() {
+                n1 = f32::NAN;
+            }
+        }
+        if let Value::String(x) = other {
+            if x.trim().is_empty() {
+                n2 = f32::NAN;
+            }
+        }
+
+        if n1.is_nan() || n2.is_nan() {
+            let s1 = String(self).to_lowercase();
+            let s2 = String(other).to_lowercase();
+            if s1 < s2 {
+                return Some(O::Less);
+            } else if s1 > s2 {
+                return Some(O::Greater);
+            }
+            return Some(O::Equal);
+        }
+
+        if n1.is_infinite() && n2.is_infinite() {
+            return Some(O::Equal);
+        }
+
+        if n1 > n2 {
+            return Some(O::Greater);
+        } else if n1 < n2 {
+            return Some(O::Less);
+        }
+        Some(O::Equal)
+    }
 }
 
 impl Default for Value {
@@ -360,9 +1032,58 @@ macro_rules! value_into {
     };
 }
 
+/// Cast a value into a number, following javascript's casting rules.
+fn Number(input: &Value) -> f32 {
+    match input {
+        Value::Num(x) => *x,
+        Value::Null => 0.0,
+        Value::Bool(x) => match x {
+            true => 1.0,
+            false => 0.0,
+        },
+        Value::String(x) => {
+            if let Ok(try_parse) = x.parse() {
+                try_parse
+            } else {
+                f32::NAN
+            }
+        }
+    }
+}
+
+fn toNumber(input: &Value) -> f32 {
+    if let Value::Num(x) = input {
+        if x.is_nan() {
+            return 0.0;
+        }
+        return *x;
+    }
+
+    let n = Number(input);
+    if n.is_nan() {
+        return 0.0;
+    }
+    return n;
+}
+
+fn String(input: &Value) -> String {
+    match input {
+        Value::String(x) => x.clone(),
+        Value::Null => String::from("null"),
+        Value::Bool(x) => match x {
+            true => String::from("true"),
+            false => String::from("false"),
+        },
+        Value::Num(x) => format!("{}", x), // Possibly make sure this conforms to javascrip?
+                                           // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number/toString
+    }
+}
+
 value_into!(u32);
+value_into!(u64);
 value_into!(usize);
 value_into!(f32);
+value_into!(f64);
 value_into!(i32);
 
 impl From<f32> for Value {
@@ -400,6 +1121,116 @@ impl From<&str> for Value {
     }
 }
 
+impl From<char> for Value {
+    fn from(item: char) -> Self {
+        Value::String(item.to_string())
+    }
+}
+
+impl From<bool> for Value {
+    fn from(value: bool) -> Self {
+        Value::Bool(value)
+    }
+}
+
+impl Into<String> for Value {
+    fn into(self) -> String {
+        match self {
+            Value::Num(x) => format!("{}", x),
+            Value::String(x) => x,
+            Value::Bool(x) => {
+                if x {
+                    String::from("true")
+                } else {
+                    String::from("false")
+                }
+            }
+            Value::Null => String::new(),
+        }
+    }
+}
+
+impl Into<bool> for Value {
+    fn into(self) -> bool {
+        match self {
+            Value::Num(x) => match x as i32 {
+                0 => false,
+                _ => true,
+            },
+            Value::String(x) => match &*x.to_lowercase() {
+                "" => false,
+                "0" => false,
+                "false" => false,
+                _ => true,
+            },
+            Value::Bool(x) => x,
+            Value::Null => false,
+        }
+    }
+}
+
+impl std::ops::Add for Value {
+    type Output = Value;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        let lhs_num: f32 = self.into();
+        let rhs_num: f32 = rhs.into();
+
+        Value::Num(lhs_num + rhs_num)
+    }
+}
+
+impl std::ops::Sub for Value {
+    type Output = Value;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        let lhs_num: f32 = self.into();
+        let rhs_num: f32 = rhs.into();
+
+        Value::Num(lhs_num - rhs_num)
+    }
+}
+
+impl std::ops::Mul for Value {
+    type Output = Value;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        let lhs_num: f32 = self.into();
+        let rhs_num: f32 = rhs.into();
+
+        Value::Num(lhs_num * rhs_num)
+    }
+}
+
+impl std::ops::Div for Value {
+    type Output = Value;
+
+    fn div(self, rhs: Self) -> Self::Output {
+        let lhs_num: f32 = self.into();
+        let rhs_num: f32 = rhs.into();
+
+        Value::Num(lhs_num / rhs_num)
+    }
+}
+
+impl std::ops::Not for Value {
+    type Output = Value;
+
+    fn not(self) -> Self::Output {
+        let x: bool = self.into();
+        Value::Bool(!x)
+    }
+}
+
+impl std::ops::Neg for Value {
+    type Output = Value;
+
+    fn neg(self) -> Self::Output {
+        let num: f32 = self.into();
+        Value::Num(-num)
+    }
+}
+
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // write!(f,"{}",self.va)
@@ -430,6 +1261,7 @@ pub struct SpriteBuilder {
     rotation_style: RotationStyle,
     name: String,
     variables: HashMap<String, (String, Value)>,
+    lists: HashMap<String, (String, Vec<Value>)>,
     costume: usize,
     costumes: Vec<Costume>,
 }
@@ -447,6 +1279,7 @@ impl SpriteBuilder {
             rotation_style: RotationStyle::AllAround,
             name,
             variables: HashMap::new(),
+            lists: HashMap::new(),
             costume: 0,
             costumes: Vec::new(),
         }
@@ -462,6 +1295,7 @@ impl SpriteBuilder {
             draggable: self.draggable,
             rotation_style: self.rotation_style,
             name: self.name,
+            lists: self.lists,
             variables: self.variables,
             costume: self.costume,
             costumes: self.costumes,
@@ -499,6 +1333,10 @@ impl SpriteBuilder {
         self.variables.insert(id, value);
         self
     }
+    pub fn add_list(mut self, id: String, value: (String, Vec<Value>)) -> Self {
+        self.lists.insert(id, value);
+        self
+    }
     pub fn add_costume(mut self, costume: Costume) -> Self {
         self.costumes.push(costume);
         self
@@ -532,6 +1370,7 @@ pub struct Sprite {
     // blocks: Vec<Thread<'a>>,
     /// A list of variables for the sprite
     variables: HashMap<String, (String, Value)>,
+    lists: HashMap<String, (String, Vec<Value>)>,
     /// The current costume. This is an index to the costumes attribute, which
     /// is itself an index!.
     costume: usize,
@@ -660,6 +1499,47 @@ impl Future for Yield {
     }
 }
 
+/// An enum to represent a wait.  This yields once at the beginning,
+/// and then continues to yield until the wait is over.
+enum Wait {
+    Start { start: Instant, duration: Duration },
+    Middle { start: Instant, duration: Duration },
+    End,
+}
+
+impl Wait {
+    /// Create a new wait.
+    fn new(duration: Duration) -> Self {
+        Self::Start {
+            start: Instant::now(),
+            duration,
+        }
+    }
+}
+
+impl Future for Wait {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match *self.as_mut() {
+            Wait::Start { start, duration } => {
+                *self = Wait::Middle { start, duration };
+                Poll::Pending
+            }
+            Wait::Middle { start, duration } => {
+                let now = Instant::now();
+                if now >= start + duration {
+                    *self = Wait::End;
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            }
+            Wait::End => panic!("poll called after Poll::Ready was returned"),
+        }
+    }
+}
+
 /// A thread object. This is a "virtual thread"; that is, it is not run in a
 /// separate thread, but in an async loop.
 struct Thread {
@@ -701,7 +1581,7 @@ impl Thread {
 /// redrawing the screen.
 struct Program {
     threads: Vec<Thread>,
-    objects: Vec<Rc<Mutex<Sprite>>>,
+    //objects: Vec<Rc<Mutex<Sprite>>>,
     gl: GlGraphics,
     costumes: Vec<Costume>,
 }
@@ -762,7 +1642,6 @@ impl Program {
     fn new() -> Self {
         return Program {
             threads: Vec::new(),
-            objects: Vec::new(),
             gl: GlGraphics::new(OpenGL::V3_2),
             costumes: Vec::new(),
         };
@@ -778,7 +1657,7 @@ impl Program {
     }
 
     /// Renders a red square.
-    fn render(&mut self, args: &RenderArgs, stage: Rc<Mutex<Stage>>) {
+    fn render(&mut self, args: &RenderArgs, stage: Rc<Mutex<Stage>>, size: WindowSize) {
         use graphics::*;
 
         let stage = stage.lock().unwrap();
@@ -798,13 +1677,29 @@ impl Program {
             // self.costumes[stage.costumes[stage.costume]].draw(c.transform, gl);
             stage.costumes[stage.costume].draw(c.transform, gl);
 
-            // TODO sort by order
-            for object in self.objects.clone() {
-                let object = object.lock().unwrap();
-                object.costumes[object.costume].draw(
+            for stamp in &stage.stamps {
+                let stamp_sprite = stamp.sprite.lock().unwrap();
+                stamp_sprite.costumes[stamp.costume].draw(
                     c.transform
-                        .trans(240.0, 180.0)
-                        .trans(object.x.into(), <f32 as Into<f64>>::into(object.y * -1.0)),
+                        .trans(size.width / 2.0, size.height / 2.0)
+                        .trans(stamp.x.into(), <f32 as Into<f64>>::into(stamp.y * -1.0)),
+                    gl,
+                );
+            }
+
+            // TODO sort by order
+            // Draw the sprites
+            for sprite in stage.sprites.clone() {
+                let sprite = sprite.lock().unwrap();
+                if !sprite.visible {
+                    // if the sprite is hidden, don't draw it.
+                    continue;
+                }
+                sprite.costumes[sprite.costume].draw(
+                    c.transform
+                        //.trans(240.0, 180.0)
+                        .trans(size.width / 2.0, size.height / 2.0)
+                        .trans(sprite.x.into(), <f32 as Into<f64>>::into(sprite.y * -1.0)),
                     gl,
                 );
             }
@@ -822,8 +1717,15 @@ impl Program {
         self.threads.append(&mut threads)
     }
 
-    fn add_object(&mut self, object: Rc<Mutex<Sprite>>) {
-        self.objects.push(object);
+    /// Get a sprite by a name, or return null
+    fn get_sprite(&self, name: String) -> Option<Rc<Mutex<Sprite>>> {
+        return None;
+        //for sprite in self.objects.clone(){
+        //    let locked_sprite = sprite.lock().unwrap();
+        //    if locked_sprite.name == name{
+        //        return Some(sprite.clone());
+        //    }
+        //}
     }
 
     /// Add a costume to the program
@@ -885,6 +1787,7 @@ pub struct StageBuilder {
     video_transparency: i32,
     text_to_speech_language: String,
     variables: HashMap<String, (String, Value)>,
+    lists: HashMap<String, (String, Vec<Value>)>,
     costume: usize,
     costumes: Vec<Costume>,
 }
@@ -897,6 +1800,7 @@ impl StageBuilder {
             video_transparency: 0,
             text_to_speech_language: "en".to_string(),
             variables: HashMap::new(),
+            lists: HashMap::new(),
             costume: 0,
             costumes: Vec::new(),
         }
@@ -908,8 +1812,14 @@ impl StageBuilder {
             video_transparency: self.video_transparency,
             text_to_speech_language: self.text_to_speech_language,
             variables: self.variables,
+            lists: self.lists,
             costume: self.costume,
             costumes: self.costumes,
+            sprites: Vec::new(),
+            keyboard: Keyboard::new(),
+            mouse: Mouse::new(),
+            stamps: Vec::new(),
+            answer: Value::from(String::new()),
         }
     }
     pub fn tempo(mut self, tempo: i32) -> Self {
@@ -926,6 +1836,10 @@ impl StageBuilder {
     }
     pub fn add_variable(mut self, id: String, value: (String, Value)) -> Self {
         self.variables.insert(id, value);
+        self
+    }
+    pub fn add_list(mut self, id: String, value: (String, Vec<Value>)) -> Self {
+        self.lists.insert(id, value);
         self
     }
     pub fn add_costume(mut self, costume: Costume) -> Self {
@@ -954,14 +1868,31 @@ pub struct Stage {
     /// The text to speech language.  Defaults to the editor language.
     text_to_speech_language: String,
     variables: HashMap<String, (String, Value)>,
+    lists: HashMap<String, (String, Vec<Value>)>,
     /// The current costume.  An index to the stage costumes list.
     costume: usize,
     /// The costumes in the stage. These are indexes to the list of costumes in
     /// the program.
     costumes: Vec<Costume>,
+    keyboard: Keyboard,
+    mouse: Mouse,
+    /// A list of references to sprites.
+    sprites: Vec<Rc<Mutex<Sprite>>>,
+
+    stamps: Vec<Stamp>,
+    /// The current value of answer.
+    answer:Value,
 }
 
 impl Stage {
+    fn set_answer(&mut self,v:Value){
+        self.answer = v;
+    }
+
+    fn get_answer(&self)->Value{
+        return self.answer.clone();
+    }
+
     fn set_costume(&mut self, mut index: f32) {
         // round the index to a whole number
         index = index.round();
@@ -973,6 +1904,21 @@ impl Stage {
         index = index.clamp(0.0, self.costumes.len() as f32 - 1.0); // make sure the index is valid
 
         self.costume = index as usize;
+    }
+
+    fn add_sprite(&mut self, sprite: Rc<Mutex<Sprite>>) {
+        self.sprites.push(sprite);
+    }
+
+    /// Get a sprite by a name, or return null
+    fn get_sprite(&self, name: String) -> Option<Rc<Mutex<Sprite>>> {
+        for sprite in self.sprites.clone() {
+            let locked_sprite = sprite.lock().unwrap();
+            if locked_sprite.name == name {
+                return Some(sprite.clone());
+            }
+        }
+        return None;
     }
 }
 
@@ -1048,4 +1994,233 @@ pub enum WaitType {
     Time(u32),
     CustomBlock,
     None,
+}
+
+#[derive(Debug, Clone)]
+pub struct Keyboard {
+    keys_pressed: HashSet<Key>,
+    key_name: HashMap<&'static str, &'static str>,
+}
+
+impl Keyboard {
+    fn new() -> Self {
+        Keyboard {
+            keys_pressed: HashSet::new(),
+            key_name: HashMap::from([
+                ("space", "SPACE"),
+                ("left arrow", "LEFT"),
+                ("up arrow", "UP"),
+                ("right arrow", "RIGHT"),
+                ("down arrow", "DOWN"),
+                ("enter", "ENTER"),
+            ]),
+        }
+    }
+
+    fn press_key(&mut self, key: Key) {
+        self.keys_pressed.insert(key);
+    }
+
+    fn release_key(&mut self, key: Key) {
+        self.keys_pressed.remove(&key);
+    }
+
+    fn key_arg_to_scratch_key(&self, arg: Value) -> String {
+        if let Value::Num(x) = arg {
+            if x >= 48.0 && x <= 90.0 {
+                return String::from_utf16(&[x as u16]).expect("Propper range.");
+            }
+            return match x as u16 {
+                32 => self.key_name.get("space").unwrap().to_string(),
+                37 => self.key_name.get("left arrow").unwrap().to_string(),
+                38 => self.key_name.get("up arrow").unwrap().to_string(),
+                39 => self.key_name.get("right arrow").unwrap().to_string(),
+                40 => self.key_name.get("down arrow").unwrap().to_string(),
+                _ => unreachable!("Unknown key"),
+            };
+        }
+
+        // match arg {
+        //     Value::Num(_) => todo!(),
+        //     Value::String(_) => todo!(),
+        //     Value::Bool(_) => todo!(),
+        //     Value::Null => todo!(),
+        // }
+        let mut keyArg: String = arg.into();
+
+        if let Some(a) = self.key_name.get(&*keyArg) {
+            return a.to_string();
+        }
+
+        if keyArg.len() > 1 {
+            keyArg = keyArg.chars().nth(0).unwrap().into();
+        }
+
+        if keyArg == " ".to_string() {
+            return self.key_name.get("SPACE").unwrap().to_string();
+        }
+
+        return keyArg.to_uppercase();
+    }
+
+    fn scratch_key_to_Key(&self, arg: String) -> Key {
+        match &*arg {
+            "A" => Key::A,
+            "B" => Key::B,
+            "C" => Key::C,
+            "D" => Key::D,
+            "E" => Key::E,
+            "F" => Key::F,
+            "G" => Key::G,
+            "H" => Key::H,
+            "I" => Key::I,
+            "J" => Key::J,
+            "K" => Key::K,
+            "L" => Key::L,
+            "M" => Key::M,
+            "N" => Key::N,
+            "O" => Key::O,
+            "P" => Key::P,
+            "Q" => Key::Q,
+            "R" => Key::R,
+            "S" => Key::S,
+            "T" => Key::T,
+            "U" => Key::U,
+            "V" => Key::V,
+            "W" => Key::W,
+            "X" => Key::X,
+            "Y" => Key::Y,
+            "Z" => Key::Z,
+            "space" => Key::Space,
+            "left arrow" => Key::Left,
+            "right arrow" => Key::Right,
+            "up arrow" => Key::Up,
+            "down arrow" => Key::Down,
+            "SPACE" => Key::Space,
+            "LEFT" => Key::Left,
+            "RIGHT" => Key::Right,
+            "UP" => Key::Up,
+            "DOWN" => Key::Down,
+            "0" => Key::D0,
+            "1" => Key::D1,
+            "2" => Key::D2,
+            "3" => Key::D3,
+            "4" => Key::D4,
+            "5" => Key::D5,
+            "6" => Key::D6,
+            "7" => Key::D7,
+            "8" => Key::D8,
+            "9" => Key::D9,
+            "!" => Key::Exclaim,
+            "@" => Key::At,
+            "#" => Key::Hash,
+            "$" => Key::Dollar,
+            "%" => Key::Percent,
+            "^" => Key::Caret,
+            "&" => Key::Ampersand,
+            "*" => Key::Asterisk,
+            "(" => Key::LeftParen,
+            ")" => Key::RightParen,
+            "`" => Key::Backquote,
+            "-" => Key::Minus,
+            "+" => Key::Plus,
+            "_" => Key::Underscore,
+            "=" => Key::Equals,
+            "[" => Key::LeftBracket,
+            "]" => Key::RightBracket,
+            "\\" => Key::Backslash,
+            ";" => Key::Semicolon,
+            ":" => Key::Colon,
+            "'" => Key::Quote,
+            "\"" => Key::Quotedbl,
+            "/" => Key::Slash,
+            "?" => Key::Question,
+            "." => Key::Period,
+            "," => Key::Comma,
+            // "<"=>Key::Angle
+            _ => Key::Unknown,
+        }
+    }
+
+    fn get_key_down(&self, arg: Value) -> bool {
+        if let Value::String(x) = &arg {
+            if x == &String::from("any") {
+                return self.keys_pressed.len() > 0;
+            }
+        }
+
+        let scratchKey = self.scratch_key_to_Key(self.key_arg_to_scratch_key(arg));
+
+        return self.keys_pressed.get(&scratchKey).is_some();
+    }
+}
+
+/// The mouse struct.
+///
+/// This holds the position of the mouse, both in scratch coordinates and piston coordinates.
+/// It also holds the keys that are pressed or not.
+pub struct Mouse {
+    scratch_position: (f32, f32),
+    piston_position: (f32, f32),
+}
+
+impl Mouse {
+    fn new() -> Self {
+        Self {
+            scratch_position: (0.0, 0.0),
+            piston_position: (0.0, 0.0),
+        }
+    }
+
+    /// Set the position of the mouse, in piston coordinates.
+    /// This also sets the scratch position to the correct coordinates.
+    pub fn set_piston_position(&mut self, pos: [f64; 2], size: WindowSize) {
+        self.piston_position = (pos[0] as f32, pos[1] as f32);
+        self.scratch_position = Mouse::piston2scratch((pos[0] as f32, pos[1] as f32), size);
+    }
+
+    /// Convert piston coordinates to scratch coordinates
+    fn piston2scratch(coords: (f32, f32), size: WindowSize) -> (f32, f32) {
+        let (mut x, mut y) = coords;
+
+        // find the ratio of scratch size to actual size
+        let ratio_x: f32 = Into::<f32>::into(SCRATCH_WIDTH) / size.width as f32;
+        let ratio_y: f32 = Into::<f32>::into(SCRATCH_HEIGHT) / size.height as f32;
+
+        // resize the coordinates to the correct size
+        x *= ratio_x;
+        y *= ratio_y;
+
+        // convert coordinates from origin at top-left to origin at center.
+        x = x - (Into::<f32>::into(SCRATCH_HALF_WIDTH));
+        y = -(y - (Into::<f32>::into(SCRATCH_HALF_HEIGHT)));
+
+        return (x, y);
+    }
+
+    fn x(&self) -> Value {
+        Value::Num(self.scratch_position.0)
+    }
+    fn y(&self) -> Value {
+        Value::Num(self.scratch_position.1)
+    }
+}
+
+impl Display for Mouse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "({},{})",
+            self.scratch_position.0, self.scratch_position.1
+        )
+    }
+}
+
+/// A stamp of a sprite.
+struct Stamp {
+    x: f32,
+    y: f32,
+    size: f32,
+    costume: usize,
+    sprite: Rc<Mutex<Sprite>>,
 }

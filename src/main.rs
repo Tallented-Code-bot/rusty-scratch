@@ -48,47 +48,71 @@ struct Cli {
 /// ```
 fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
     let mut blocks: HashMap<&str, &str> = HashMap::new();
-    blocks.insert("motion_setx", "set_x(sprite.clone(),Xf32);");
-    blocks.insert("motion_sety", "set_y(sprite.clone(),Yf32)");
-    blocks.insert("motion_changexby", "change_x_by(sprite.clone(),DXf32)");
-    blocks.insert("motion_changeyby", "change_y_by(sprite.clone(),DYf32);");
+    blocks.insert("motion_setx", "set_x(sprite.clone().unwrap(),X);");
+    blocks.insert("motion_sety", "set_y(sprite.clone().unwrap(),Y);");
+    blocks.insert("motion_changexby", "change_x_by(sprite.clone().unwrap(),DX);");
+    blocks.insert("motion_changeyby", "change_y_by(sprite.clone().unwrap(),DY);");
+    blocks.insert("motion_xposition", "get_x(sprite.clone().unwrap())");
+    blocks.insert("motion_yposition", "get_y(sprite.clone().unwrap())");
     // blocks.insert("motion_movesteps", "object.move_steps(STEPSf32);");
-    blocks.insert("motion_movesteps", "move_steps(sprite.clone(),STEPSf32);");
-    blocks.insert("motion_turnleft", "turn_left(sprite.clone(),DEGREESf32)");
-    blocks.insert("motion_turnright", "turn_right(sprite.clone(),DEGREESf32)");
-    blocks.insert("motion_gotoxy", "go_to(sprite.clone(),Xf32,Yf32)");
+    blocks.insert("motion_movesteps", "move_steps(sprite.clone().unwrap(),STEPS);");
+    blocks.insert("motion_turnleft", "turn_left(sprite.clone().unwrap(),DEGREESf32);");
+    blocks.insert("motion_turnright", "turn_right(sprite.clone().unwrap(),DEGREESf32);");
+    blocks.insert("motion_goto", "go_to(sprite.clone().unwrap(),stage.clone(),TO);");
+    blocks.insert("motion_gotoxy", "go_to_xy(sprite.clone().unwrap(),X,Y);");
     blocks.insert(
         "motion_pointindirection",
-        "point_in_direction(sprite.clone(),DIRECTIONf32)",
+        "point_in_direction(sprite.clone().unwrap(),DIRECTIONf32);",
     );
-    blocks.insert("motion_setrotationstyle", "set_rotation_style(STYLE)");
+    blocks.insert(
+        "motion_setrotationstyle",
+        "set_rotation_style(sprite.clone().unwrap(),STYLE);",
+    );
     blocks.insert("event_whenflagclicked", "flag_clicked();");
     blocks.insert(
         "control_repeat",
         "for z in 0..TIMES.into(){SUBSTACK\nYield::Start.await;}",
-    ); //TODO add yielding
+    );
+    blocks.insert(
+        "control_wait",
+        "Wait::new(Duration::from_secs(DURATION.into())).await;",
+    );
     blocks.insert("control_forever", "loop{SUBSTACK\nYield::Start.await;}");
-    blocks.insert("control_if", "if CONDITION {SUBSTACK}");
+    blocks.insert(
+        "control_if",
+        "if <Value as Into<bool>>::into(Value::from(CONDITION)) {SUBSTACK}",
+    );
     blocks.insert("control_if_else", "if CONDITION {SUBSTACK}else{SUBSTACK2}");
-    blocks.insert("control_wait_until", "wait_until(CONDITION).await;");
+    // blocks.insert(
+    //     "control_wait_until",
+    //     "wait_until(Value::from(CONDITION)).await;",
+    // );
+    blocks.insert(
+        "control_wait_until",
+        "while !<Value as Into<bool>>::into(Value::from(CONDITION)){
+            Yield::Start.await;
+        }",
+    );
     blocks.insert(
         "control_repeat_until",
-        "while !CONDITION{SUBSTACK\nYield::Start.await;}",
+        "while !<Value as Into<bool>>::into(CONDITION){SUBSTACK\nYield::Start.await;}",
     );
 
     // blocks.insert("looks_say", "object.say(String::from(\"MESSAGE\"));");
-    blocks.insert("looks_say", "say(Value::from(MESSAGE));");
+    blocks.insert("looks_say", "say(MESSAGE);");
     blocks.insert(
         "looks_switchbackdropto",
-        "switch_backdrop(stage.clone(),BACKDROP)",
+        "switch_backdrop(stage.clone(),BACKDROP);",
     );
+    blocks.insert("looks_backdrops","switch_backdrop(stage.clone(),BACKDROP);"); // legacy? not included in scratch 3 opcodes
     blocks.insert("looks_nextcostume", "next_costume(sprite.clone());");
     blocks.insert(
-        "looks_switchcostume",
-        "switch_costume(sprite.clone(),COSTUME);",
+        "looks_switchcostumeto",
+        "switch_costume(sprite.clone().unwrap(),COSTUME);",
     );
-    blocks.insert("looks_show", "show(sprite.clone());");
-    blocks.insert("looks_hide", "hide(sprite.clone());");
+    blocks.insert("looks_setsizeto", "set_size(sprite.clone().unwrap(),SIZE);");
+    blocks.insert("looks_show", "show(sprite.clone().unwrap());");
+    blocks.insert("looks_hide", "hide(sprite.clone().unwrap());");
     blocks.insert("event_whenflagclicked", "");
     // blocks.insert(
     //     "data_variable",
@@ -96,24 +120,86 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
     // );
     blocks.insert(
         "data_setvariableto",
-        "object.set_variable(String::from(\"VARIABLE\"),&mut Value::from(VALUEf32));",
+        "set_variable(sprite.clone(),stage.clone(),VARIABLE,VALUE);",
     );
     blocks.insert(
         "data_changevariableby",
-        "object.change_variable(String::from(\"VARIABLE\"),VALUEf32);",
+        "change_variable(sprite.clone(),stage.clone(),VARIABLE,VALUE);",
+    );
+    blocks.insert(
+        "data_addtolist",
+        "add_to_list(sprite.clone(),stage.clone(),ITEM,LIST);",
+    );
+    blocks.insert(
+        "data_deleteoflist",
+        "delete_from_list(sprite.clone(),stage.clone(),INDEX,LIST);",
+    );
+    blocks.insert(
+        "data_deletealloflist",
+        "delete_all_of_list(sprite.clone(),stage.clone(),LIST);",
+    );
+    blocks.insert(
+        "data_insertatlist",
+        "insert_item_in_list(sprite.clone(),stage.clone(),ITEM,INDEX,LIST);",
+    );
+    blocks.insert(
+        "data_replaceitemoflist",
+        "replace_item_in_list(sprite.clone(),stage.clone(),ITEM,INDEX,LIST);",
+    );
+    blocks.insert(
+        "data_itemoflist",
+        "get_item_of_list(sprite.clone(),stage.clone(),INDEX,LIST)",
+    );
+    blocks.insert(
+        "data_itemnumoflist",
+        "get_item_num_in_list(Some(sprite.clone()),stage.clone(),ITEM,LIST)",
+    );
+    blocks.insert(
+        "data_lengthoflist",
+        "length_of_list(sprite.clone(),stage.clone(),LIST)",
+    );
+    blocks.insert(
+        "data_listcontainsitem",
+        "list_contains_item(sprite.clone(),stage.clone(),LIST,ITEM)",
     );
     blocks.insert("operator_add", "NUM1+NUM2");
     blocks.insert("operator_subtract", "NUM1-NUM2");
     blocks.insert("operator_multiply", "NUM1*NUM2");
     blocks.insert("operator_divide", "NUM1/NUM2");
     blocks.insert("operator_random", "generate_random(FROM,TO)");
-    blocks.insert("operator_lt", "OPERAND1<OPERAND2");
-    blocks.insert("operator)_equals", "OPERAND1=OPERAND2");
-    blocks.insert("operator_gt", "OPERAND1>OPERAND2");
-    blocks.insert("operator_and", "OPERAND1&&OPERAND2");
-    blocks.insert("operator_or", "OPERAND1||OPERAND2");
+    blocks.insert("operator_lt", "Value::Bool(OPERAND1<OPERAND2)");
+    blocks.insert("operator_equals", "Value::Bool(OPERAND1==OPERAND2)");
+    blocks.insert("operator_gt", "Value::Bool(OPERAND1>OPERAND2)");
+    blocks.insert(
+        "operator_and",
+        "Value::Bool(OPERAND1.into() && OPERAND2.into())",
+    );
+    blocks.insert(
+        "operator_or",
+        "Value::Bool(OPERAND1.into()||OPERAND2.into())",
+    );
     blocks.insert("operator_not", "!OPERAND");
+    blocks.insert("operator_join", "join(STRING1,STRING2)");
+    blocks.insert("operator_letter_of", "letter_of(LETTER,STRING)");
+    blocks.insert("operator_length", "length(STRING)");
+    blocks.insert("operator_contains", "contains(STRING1,STRING2)");
+    blocks.insert("operator_round", "round(NUM)");
+    blocks.insert("operator_mod", "modulus(NUM1,NUM2)");
+    blocks.insert("operator_mathop", "mathop(OPERATOR,NUM)");
     blocks.insert("argument_reporter_string_number", "VALUE");
+    blocks.insert(
+        "sensing_keypressed",
+        "key_pressed(stage.clone(),KEY_OPTION)",
+    );
+    blocks.insert("sensing_askandwait","ask(stage.clone(),QUESTION);");
+    blocks.insert("sensing_answer","answer(stage.clone())");
+    blocks.insert("sensing_username", "username()");
+    blocks.insert("sensing_keyoptions", "Value::from(KEY_OPTION)");
+    blocks.insert("motion_goto_menu", "Value::from(TO)");
+
+    blocks.insert("sensing_dayssince2000", "days_since_2000()");
+    blocks.insert("pen_stamp", "stamp(sprite.clone().unwrap(),stage.clone());");
+    blocks.insert("pen_clear", "clear_pen(stage.clone());");
 
     return blocks;
 }
@@ -169,11 +255,15 @@ fn main() {
             let opengl = OpenGL::V3_2;
 
             // Create a glutin window
-            let mut window: Window = WindowSettings::new(\"rusty-scratch\",[200,200])
+            let mut window: GlutinWindow = WindowSettings::new(\"rusty-scratch\",[600,400])
                 .graphics_api(opengl)
                 .exit_on_esc(true)
                 .build()
                 .unwrap();
+
+            let mut keyboard = Keyboard::new();
+            let mut mouse = Mouse::new();
+
 
             let mut program=Program::new();
             let mut sprites: Vec<Rc<Mutex<Sprite>>> = Vec::new();
@@ -191,10 +281,27 @@ fn main() {
             program.click_flag();
             while let Some(e) = events.next(&mut window){{
                 if let Some(args) = e.render_args(){{
-                    program.render(&args,Stage.clone());
+                    program.render(&args,Stage.clone(),window.size());
                 }}
                 if let Some(args) = e.update_args(){{
                     program.tick(/*Stage.clone()*/);
+                }}
+                if let Some(Button::Keyboard(key)) = e.press_args(){{
+                    let mut s=Stage.lock().unwrap();
+                    s.keyboard.press_key(key);
+                    //println!(\"Pressed {{:?}}\",key);
+                    //println!(\"{{:?}}\",s.keyboard);
+                }}
+                if let Some(Button::Keyboard(key)) = e.release_args(){{
+                    let mut s=Stage.lock().unwrap();
+                    s.keyboard.release_key(key);
+                    //println!(\"Released {{:?}}\",key);
+                }}
+                if let Some(pos) = e.mouse_cursor_args(){{
+                    let mut s = Stage.lock().unwrap();
+                    s.mouse.set_piston_position(pos,window.size());
+                    //mouse.set_piston_position(pos,window.size());
+                    //println!(\"Mouse moved to {{}}\",s.mouse);
                 }}
             }}
 
@@ -271,9 +378,23 @@ fn get_block(
     // println!("{}", block.1);
     let mut function;
     if opcode == "procedures_call" {
-        let cblock = data["mutation"]["proccode"].to_string();
+        let mut cblock = data["mutation"]["proccode"].to_string();
+        cblock = cblock.replace(" %s", "_percent_s");
+        cblock = cblock.replace(" %b", "_percent_b");
+        cblock = cblock.replace(" ","_");
+        cblock = cblock.to_lowercase();
+
+        let mut arguments = "".to_string();
+
+        let argument_names =
+            json::parse(&data["mutation"]["argumentids"].as_str().unwrap()).unwrap();
+
+        for arg in argument_names.members() {
+            arguments += format!(", {}", arg).as_str();
+        }
+
         function = format!(
-            "stack_procedures_definition_{}(sprite.clone(),stage.clone()).await;",
+            "stack_procedures_definition_{}(sprite.clone(),stage.clone(){arguments}).await;",
             cblock
         );
     } else {
@@ -293,15 +414,25 @@ fn get_block(
             println!("{}", input.1[1]);
 
             function = match input.1[1][0].as_u32().unwrap() {
-                4 => function.replacen(input.0, &input.1[1][1].as_str().unwrap().to_string(), 1), // Number
-                5 => function.replacen(input.0, &input.1[1][1].as_str().unwrap().to_string(), 1), // Positive number
-                6 => function.replacen(input.0, &input.1[1][1].as_str().unwrap().to_string(), 1), // Positive integer
-                7 => function.replacen(input.0, &input.1[1][1].as_str().unwrap().to_string(), 1), // Integer
-                8 => function.replacen(input.0, &input.1[1][1].as_str().unwrap().to_string(), 1), // Angle
+                4|5|6|7|8 => function.replacen(
+                    input.0,
+                    &*format!(
+                        "Value::from({})",
+                        &input.1[1][1].as_str().unwrap().to_string()
+                    ),
+                    1,
+                ), // Number
+                // 5 => function.replacen(input.0, &input.1[1][1].as_str().unwrap().to_string(), 1), // Positive number
+                // 6 => function.replacen(input.0, &input.1[1][1].as_str().unwrap().to_string(), 1), // Positive integer
+                // 7 => function.replacen(input.0, &input.1[1][1].as_str().unwrap().to_string(), 1), // Integer
+                // 8 => function.replacen(input.0, &input.1[1][1].as_str().unwrap().to_string(), 1), // Angle
                 9 => function.replacen(input.0, input.1[1][1].as_str().unwrap(), 1), // Color
                 10 => function.replacen(
                     input.0,
-                    &*format!("String::from(\"{}\")", input.1[1][1].as_str().unwrap()),
+                    &*format!(
+                        "Value::from(String::from(\"{}\"))",
+                        input.1[1][1].as_str().unwrap()
+                    ),
                     1,
                 ), // String
                 11 => todo!(),
@@ -309,13 +440,18 @@ fn get_block(
                     // Variable
                     input.0,
                     format!(
-                        "get_variable(Some(sprite.clone()),stage.clone(),\"{}\")",
+                        "get_variable(sprite.clone(),stage.clone(),\"{}\")",
                         input.1[1][2].as_str().unwrap()
                     )
                     .as_str(),
                     1,
                 ),
-                13 => todo!(),
+                // list
+                13 => function.replacen(
+                    input.0,
+                    &*format!("get_list_contents(sprite.clone(),stage.clone(),(\"{}\".to_string(),\"{}\".to_string()))",input.1[1][1],input.1[1][2]),
+                    1,
+                ),
                 _ => {
                     unreachable!()
                 }
@@ -326,21 +462,60 @@ fn get_block(
             // TODO get more than the first block
 
             // Recursively follow the substack...
-            let subfunc = get_block(
+            let subfunc = follow_stack(
                 (
                     input.1[1].as_str().unwrap(), // The id of the block we want to go to
                     &blocks[input.1[1].as_str().unwrap()], //The object corresponding to the id
                 ),
                 blocks,           // list of blocks
                 &block_reference, //block reference
-            );
+            )
+            .join("\n");
             // ... and insert the subfunction in the main function variable.
             function = function.replacen(input.0, &subfunc, 1);
         }
     }
 
     for field in data["fields"].entries() {
-        function = function.replacen(field.0, field.1[1].as_str().unwrap(), 1);
+        match &*opcode {
+            "data_setvariableto"
+            | "data_changevariableby"
+            | "data_hidevariable"
+            | "data_showvariable"
+            | "data_addtolist"
+            | "data_deleteoflist"
+            | "data_deletealloflist"
+            | "data_insertatlist"
+            | "data_replaceitemoflist"
+            | "data_itemoflist"
+            | "data_itemnumoflist"
+            | "data_lengthoflist"
+            | "data_listcontainsitem"
+            | "data_hidelist"
+            | "data_showlist" => {
+                function = function.replacen(
+                    field.0,
+                    &*format!(
+                        "(String::from(\"{}\"),String::from(\"{}\"))",
+                        field.1[0].to_string(), // name
+                        field.1[1].to_string()  // id
+                    ),
+                    1,
+                );
+            }
+            "argument_reporter_string_number" => {
+                function = function.replacen(field.0, &*format!("{}.clone()", field.1[0]), 1);
+                function = function.to_lowercase();
+            }
+
+            _ => {
+                function = function.replacen(
+                    field.0,
+                    &*format!("Value::from(String::from(\"{}\"))", field.1[0].as_str().unwrap()),
+                    1,
+                );
+            }
+        }
     }
 
     // Return the completed function
@@ -435,7 +610,7 @@ fn create_hat(
     blocks: &JsonValue,
     block_reference: &HashMap<&str, &str>,
     custom_blocks: &HashMap<String, String>,
-) -> Result<(String, StartType, String, bool), String> {
+) -> Result<(String, StartType, String, String, bool), String> {
     // Make sure the block is a top level block.
     if !block.1["topLevel"].as_bool().unwrap() {
         return Err(String::from("Not a top level block"));
@@ -443,6 +618,22 @@ fn create_hat(
     // Make sure the block has no parent.
     if !block.1["parent"].is_null() {
         return Err(String::from("Block has a parent"));
+    }
+
+    // Make sure the block is a hat block
+    match block.1["opcode"].as_str().unwrap() {
+        "event_whenflagclicked"
+        | "event_whenkeypressed"
+        | "event_whenthisspriteclicked"
+        | "event_whentouchingobject"
+        | "event_whenstageclicked"
+        | "event_whenbackdropswitchesto"
+        | "event_whengreaterthan"
+        | "event_whenbroadcastrecieved"
+        | "control_start_as_clone"
+        | "procedures_definition"
+        | "procedures_prototype" => {}
+        _ => return Err(String::from("Not a hat block")),
     }
 
     let mut custom_block = false;
@@ -482,18 +673,33 @@ fn create_hat(
         contents.join("\n")
     );
 
+    let mut arguments = "".to_string();
+
     let mut rng = rand::thread_rng();
     let mut warp = false;
+    let mut custom_block = false;
     let name = if block.1["opcode"] == "procedures_definition" {
         let prototype = &blocks[block.1["inputs"]["custom_block"][1].to_string()];
+        custom_block = true;
         if prototype["mutation"]["warp"] == "true" {
             warp = false; //true
         }
         function = function.replace("Yield::Start.await;", ""); // remove all yields
-        format!(
-            "procedures_definition_{}",
-            prototype["mutation"]["proccode"]
-        )
+
+        // the argument list is stored as an array _inside_ a string, so we have to parse it.
+        let argument_names =
+            json::parse(&prototype["mutation"]["argumentnames"].as_str().unwrap().to_lowercase()).unwrap();
+
+        for arg in argument_names.members() {
+            arguments += format!(", {}: Value", arg).as_str();
+        }
+
+        let mut proccode = prototype["mutation"]["proccode"].to_string();
+        proccode = proccode.replace(" %s", "_percent_s");
+        proccode = proccode.replace(" %b", "_percent_b");
+        proccode = proccode.replace(" ","_");
+        proccode = proccode.to_lowercase();
+        format!("procedures_definition_{}", proccode)
     } else {
         format!(
             "{}{}",
@@ -503,7 +709,13 @@ fn create_hat(
     };
 
     // TODO Remove this
-    return Ok((String::from(function), start_type, name, warp));
+    return Ok((
+        String::from(function),
+        start_type,
+        name,
+        arguments,
+        custom_block,
+    ));
 }
 
 /// Returns all stacks of blocks.
@@ -532,18 +744,25 @@ fn create_all_hats(
         expand_custom_blocks(definition, &custom_block_reference);
     }
 
+    let name_arg;
+    if name == "Stage" {
+        name_arg = "None".to_string();
+    } else {
+        name_arg = format!("Some({}.clone())", name);
+    }
+
     for block in blocks.entries() {
         let hat = create_hat(block, blocks, block_reference, &custom_blocks);
         match hat {
-            Ok((function, start_type, function_name, warp)) => {
-                match warp{
+            Ok((function, start_type, function_name, arguments, custom_block)) => {
+                match custom_block{
                     false => contents.push_str(format!(
                     // "program.add_thread(Thread{{function:{},obj_index:Some(program.objects.len()),complete:false}});\n",
-                    "async fn stack_{function_name}(sprite: Rc<Mutex<Sprite>>, stage: Rc<Mutex<Stage>>){{{function}}}
-program.add_thread(Thread::new(stack_{function_name}({sprite_name}.clone(),Stage.clone())/*,Some(program.objects.len())*/,{start_type}));\n",
-                    sprite_name = name,
+                    "async fn stack_{function_name}(sprite: Option<Rc<Mutex<Sprite>>>, stage: Rc<Mutex<Stage>> {arguments}){{{function}}}
+program.add_thread(Thread::new(stack_{function_name}({sprite_name},Stage.clone())/*,Some(program.objects.len())*/,{start_type}));\n",
+                    sprite_name = name_arg,
                 ) .as_str()),
-                    true => contents.push_str(format!("fn stack_{function_name}(sprite:Rc<Mutex<Sprite>>,stage:Rc<Mutex<Stage>>){{{function}}}").as_str())
+                    true => contents.push_str(format!("async fn stack_{function_name}(sprite:Option<Rc<Mutex<Sprite>>>,stage:Rc<Mutex<Stage>> {arguments}){{{function}}}").as_str())
                 }
             }
             Err(x) => {
@@ -599,6 +818,29 @@ fn get_variables(target: &JsonValue) -> Result<String, &str> {
     return Ok(to_return);
 }
 
+fn get_lists(target: &JsonValue) -> Result<String, &str> {
+    let mut to_return = String::new();
+    for (key, value) in target["lists"].entries() {
+        let mut list = String::from("vec![");
+
+        for item in value[1].members() {
+            if item.is_string() {
+                list.push_str(&*format!("Value::from(\"{}\")", item));
+            } else {
+                list.push_str(&*format!("Value::from({})", item));
+            }
+            list.push_str(",");
+        }
+        list.push_str("]");
+
+        to_return.push_str(&*format!(
+            ".add_list(String::from(\"{key}\"),(String::from(\"{name}\"),{list}))",
+            name = value[0],
+        ))
+    }
+    return Ok(to_return);
+}
+
 /// Writes the output rust file.
 fn write_to_file(
     block: (&str, &JsonValue),
@@ -649,6 +891,7 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
                     .video_transparency({videoTransparency})
                     {costume}
                     {variables}
+                    {lists}
                     .build()
             ));
             {function}
@@ -661,6 +904,7 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
             textToSpeechLanguage = target["textToSpeechLanguage"],
             videoTransparency = target["videoTransparency"],
             variables = get_variables(target).expect("There are no cloud variables"),
+            lists = get_lists(target).unwrap(),
             costume = target_costumes(target),
         );
     } else {
@@ -704,11 +948,16 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
                     .rotation_style({rotationStyle})
                     {costumes}
                     {variables}
+                    {lists}
                     .build()
             ));
 
             {function}
-            program.add_object({name}.clone());
+            {{
+                let mut stage = Stage.lock().unwrap(); 
+                stage.add_sprite({name}.clone());
+            }}
+
             //sprites.push({name}.clone());",
             name = target["name"],
             visible = target["visible"],
@@ -717,6 +966,7 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
             size = target["size"],
             direction = target["direction"],
             variables = get_variables(target).expect("There should be no cloud variables"),
+            lists = get_lists(target).unwrap(),
             draggable = target["draggable"],
             rotationStyle = RotationStyle::from_str(target["rotationStyle"].as_str().unwrap())
                 .unwrap()
@@ -787,6 +1037,7 @@ fn create_project(path: &PathBuf) -> Result<(), io::Error> {
     pistoncore-glutin_window = \"0.69.0\"
     piston2d-opengl_graphics = \"0.81.0\"
     resvg = \"0.25.0\"
+    chrono = \"0.4.23\"
     ";
 
     let toml_path = {
@@ -817,6 +1068,7 @@ fn get_target_assets(target: &JsonValue, path: &PathBuf) {
         ))
         .call()
         .expect("Could not download asset file");
+
 
         let mut file = std::fs::File::create({
             let mut p = path.clone();

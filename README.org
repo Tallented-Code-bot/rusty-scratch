@@ -30,7 +30,7 @@ Note that there are currently no graphics.
 - [X] Move (10) steps
 - [X] turn right (15) degrees
 - [X] Turn left (15) degrees
-- [ ] Go to [random position]
+- [X] Go to [random position]
 - [X] go to x()y()
 - [ ] glide (1) secs to [random position]
 - [ ] glide 1 secs to x:(0) y: (0)
@@ -58,8 +58,8 @@ Note that there are currently no graphics.
 - [ ] change [v color] effect by (25)
 - [ ] set [v color] effect to 0
 - [ ] clear graphic effects
-- [ ] show
-- [ ] hide
+- [X] show
+- [X] hide
 - [ ] go to [front] layer
 - [ ] go [forward] (1) layers
 - [ ] (costume [number])
@@ -109,37 +109,37 @@ Note that there are currently no graphics.
 - [ ] reset timer
 - [ ] ([backdrop #] of (stage v))
 - [ ] (current [year v])
-- [ ] (days since 2000)
-- [ ] (username)
-- [-] (()+())
-- [-] (()-())
-- [-] (()*())
-- [-] (()/())
-- [ ] (pick random (1) to (10))
-- [-] <()>()>
-- [-] <()<()>
-- [-] <()=()>
-- [-] <<>and<>>
-- [-] <<>or<>>
-- [-] <not <>>
-- [ ] (join (apple)(bannana))
-- [ ] (letter (1) of (apple))
-- [ ] (length of (apple))
-- [ ] <(apple) contains (a)?>
+- [-] (days since 2000)
+- [-] (username)
+- [X] (()+())
+- [X] (()-())
+- [X] (()*())
+- [X] (()/())
+- [X] (pick random (1) to (10))
+- [X] <()>()>
+- [X] <()<()>
+- [X] <()=()>
+- [X] <<>and<>>
+- [X] <<>or<>>
+- [X] <not <>>
+- [X] (join (apple)(bannana))
+- [X] (letter (1) of (apple))
+- [X] (length of (apple))
+- [X] <(apple) contains (a)?>
 - [ ] (() mod ())
-- [ ] (round ())
+- [X] (round ())
 - [ ] ([abs v] of ())
-- [ ] set [my variable] to (0)
-- [ ] change [my variable] by (1)
+- [X] set [my variable] to (0)
+- [X] change [my variable] by (1)
 - [ ] show variable [my variable]
 - [ ] hide variable [my variable]
-- [ ] add (thing) to [test v]
-- [ ] delete (1) of [test]
-- [ ] insert (thing) at (1) of [test]
-- [ ] replace item (1) of [test] with (thing)
-- [ ] (item (1) of [test])
-- [ ] (item # of (thing) in [test])
-- [ ] (length of [test])
-- [ ] <[test] contains (thing)?>
+- [X] add (thing) to [test v]
+- [X] delete (1) of [test]
+- [X] insert (thing) at (1) of [test]
+- [X] replace item (1) of [test] with (thing)
+- [X] (item (1) of [test])
+- [X] (item \# of (thing) in [test])
+- [X] (length of [test])
+- [X] <[test] contains (thing)?>
 - [ ] show list [test]
 - [ ] hide list [test]
