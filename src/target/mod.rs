@@ -50,11 +50,11 @@ const LIST_ITEM_LIMIT: Value = Value::Num(20000.0); // TODO check this
 
 mod blocks {
     use super::{toNumber, Stamp, LIST_ITEM_LIMIT, SCRATCH_HALF_HEIGHT, SCRATCH_HALF_WIDTH};
+    use super::{Keyboard, Sprite, Stage, Target, Value, Yield};
     use chrono::TimeZone;
+    use core::f32::consts::PI;
     use rand::Rng;
     use std::io;
-    use super::{Keyboard, Sprite, Stage, Target, Value, Yield};
-    use core::f32::consts::PI;
     use std::{
         f32::consts::E,
         rc::Rc,
@@ -726,7 +726,10 @@ mod blocks {
         index -= 1;
         let s: String = string.into();
 
-        return Value::from(s.chars().nth(index).unwrap());
+        return Value::from(match s.chars().nth(index) {
+            Some(x) => x.to_string(),
+            None => String::new(),
+        });
     }
 
     pub fn length(string: Value) -> Value {
@@ -807,17 +810,20 @@ mod blocks {
         Value::Bool(to_return)
     }
 
-    pub fn ask(stage:Rc<Mutex<Stage>>,string:Value){
-        println!("{}",string);
+    pub fn ask(stage: Rc<Mutex<Stage>>, string: Value) {
+        println!("{}", string);
         let mut buffer = String::new();
         let stdin = io::stdin();
         stdin.read_line(&mut buffer).expect("Input should not fail");
 
-        let mut stage = stage.lock().unwrap(); 
+        buffer = buffer.replace("\r","");
+        buffer = buffer.replace("\n","");
+
+        let mut stage = stage.lock().unwrap();
         stage.set_answer(Value::from(buffer));
     }
 
-    pub fn answer(stage:Rc<Mutex<Stage>>)->Value{
+    pub fn answer(stage: Rc<Mutex<Stage>>) -> Value {
         let stage = stage.lock().unwrap();
         return stage.get_answer();
     }
@@ -921,7 +927,7 @@ impl VideoState {
 /// A value, for a variable, list, or something else.
 ///
 /// This can represent either a number or a string.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Value {
     Num(f32),
     String(String),
@@ -957,6 +963,15 @@ impl Value {
             return Err(());
         }
         return Ok(index);
+    }
+}
+
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        if self.partial_cmp(other) == Some(std::cmp::Ordering::Equal) {
+            return true;
+        }
+        return false;
     }
 }
 

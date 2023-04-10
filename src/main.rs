@@ -430,7 +430,7 @@ fn get_block(
                 10 => function.replacen(
                     input.0,
                     &*format!(
-                        "Value::from(String::from(\"{}\"))",
+                        "Value::from(String::from(r###\"{}\"###))",
                         input.1[1][1].as_str().unwrap()
                     ),
                     1,
@@ -798,16 +798,16 @@ fn get_variables(target: &JsonValue) -> Result<String, &str> {
         // if the value is a string, include quotation marks                    v        v
         if value[1].is_string() {
             to_return.push_str(&*format!(
-                ".add_variable(String::from(\"{key}\"),(String::from(\"{name}\"),Value::from(\"{value}\")))\n",
+                ".add_variable(String::from(r###\"{key}\"###),(String::from(r###\"{name}\"###),Value::from(r###\"{value}\"###)))\n",
                 name = value[0],
-                value = value[1]
+                value = value[1],
             ))
         } else {
             //otherwise don't include qotation marks.
             to_return.push_str(&*format!(
                 ".add_variable(String::from(\"{key}\"),(String::from(\"{name}\"),Value::from({value})))\n",
                 name = value[0],
-                value = value[1]
+                value = value[1],
             ));
         }
     }
