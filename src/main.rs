@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::process::{Command, Output};
 use target::StartType;
 use ureq;
+use ureq::serde_json;
 use zip;
 
 use clap::Parser;
@@ -227,6 +228,16 @@ fn main() {
     let block_reference = make_blocks_lookup();
     create_project(&output).expect("Could not create new rust project"); // create a new cargo project
                                                                          //510186917
+    let readme = {
+        let mut f = output.clone();
+        f.push("README.md");
+        f
+    };
+     
+    
+    fs::write(readme,create_readme(cli.id).expect("Could fetch project")).expect("To write file");
+
+
     let filename = {
         let mut f = output.clone();
         f.push("src");
@@ -1142,4 +1153,25 @@ fn convert_svg_png(target: &JsonValue) {
             &TextureSettings::new(),
         );
     }
+}
+
+
+
+/// Create the readme for a given scratch project
+fn create_readme(id:u64) -> Result<String,ureq::Error>{
+    let response = ureq::get(&*format!("https://api.scratch.mit.edu/projects/{}",id)).call()?;
+    let json:serde_json::Value = response.into_json()?;
+
+    let title = &json["title"].as_str().unwrap();
+    let description = &json["description"].as_str().unwrap();
+    let instructions = &json["instructions"].as_str().unwrap();
+
+    Ok(format!("
+# {title}
+## Instructions
+{instructions}
+## Notes and Credits
+{description}
+    "))
+
 }
