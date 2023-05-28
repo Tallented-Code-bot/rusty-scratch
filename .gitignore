@@ -2,3 +2,5 @@
 *.sb3*
 project.json
 output*
+*.ps1
+.vscode
