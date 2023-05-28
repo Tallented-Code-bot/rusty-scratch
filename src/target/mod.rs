@@ -100,7 +100,7 @@ mod blocks {
                 return None;
             }
         }
-        return Some((targetX, targetY));
+        Some((targetX, targetY))
     }
 
     pub fn go_to(sprite: Rc<Mutex<Sprite>>, stage: Rc<Mutex<Stage>>, to: Value) {
@@ -172,7 +172,7 @@ mod blocks {
     ///
     /// Value can either be a number or string. Numbers are treated as indexes,
     /// while strings are first treated as costume names, then
-    /// previous/next/random costume, and finaly cast to numbers and tested as indexes.
+    /// previous/next/random costume, and finally cast to numbers and tested as indexes.
     pub fn switch_backdrop(stage: Rc<Mutex<Stage>>, backdrop: Value) {
         let mut stage = stage.lock().unwrap();
 
@@ -182,8 +182,8 @@ mod blocks {
                 let current_costume = stage.costume;
 
                 let index = stage.costumes.iter().position(|c| c.name == name);
-                if index.is_some() {
-                    stage.set_costume(index.expect("Must be some") as f32);
+                if let Some(i) = index{
+                    stage.set_costume(i as f32);
                 } else if name == "next backdrop" {
                     stage.set_costume(current_costume as f32 + 1.0);
                 } else if name == "previous backdrop" {
@@ -288,12 +288,12 @@ mod blocks {
                 }
 
                 // return the variable's value
-                return var.expect("no such variable found").1.clone();
+                var.expect("no such variable found").1.clone()
             }
             None => {
                 let var = stage.variables.get(id).unwrap();
 
-                return var.1.clone();
+                var.1.clone()
             }
         }
     }
@@ -370,7 +370,7 @@ mod blocks {
             }
         }
 
-        return list.1;
+        list.1
     }
 
     fn replace_list(
@@ -426,20 +426,20 @@ mod blocks {
 
         if all_single_letters {
             // join the list items together with no space
-            return Value::String(
+            Value::String(
                 list.iter()
                     .map(|x| x.to_string())
                     .collect::<Vec<String>>()
                     .join(""),
-            );
+            )
         } else {
             // join the list items together with a space in between
-            return Value::String(
+            Value::String(
                 list.iter()
                     .map(|x| x.to_string())
                     .collect::<Vec<String>>()
                     .join(" "),
-            );
+            )
         }
     }
 
@@ -465,7 +465,7 @@ mod blocks {
         (name, id): (String, String),
     ) -> Value {
         let list = get_list(sprite, stage, (name, id));
-        return Value::Num(list.len() as f32);
+        Value::Num(list.len() as f32)
     }
 
     pub fn get_item_num_in_list(
@@ -481,7 +481,7 @@ mod blocks {
                 return Value::Num((i - 1) as f32);
             }
         }
-        return Value::Num(0 as f32);
+        Value::Num(0 as f32)
     }
 
     pub fn list_contains_item(
@@ -497,7 +497,7 @@ mod blocks {
                 return Value::Bool(true);
             }
         }
-        return Value::Bool(false);
+        Value::Bool(false)
     }
 
     /// Get a mutable reference to a list in the sprite or stage.
@@ -575,14 +575,10 @@ mod blocks {
         let index = item.to_list_index(list.len(), true);
 
         // TODO handle deleting all of the list. (This is not supported yet in the .to_list_index() function).
-        match index {
-            Ok(x) => {
-                list.remove(x - 1);
-                replace_list(sprite, stage, list, (name, id));
-            }
-            Err(_) => {
-                return;
-            }
+
+        if let Ok(x) = index{
+            list.remove(x - 1);
+            replace_list(sprite ,stage ,list, (name, id));
         }
     }
 
@@ -618,9 +614,7 @@ mod blocks {
 
                 replace_list(sprite, stage, list, (name, id));
             }
-            Err(_) => {
-                return;
-            }
+            Err(_) => {}
         }
     }
 
@@ -639,60 +633,11 @@ mod blocks {
                 list[x - 1] = item;
                 replace_list(sprite, stage, list, (name, id));
             }
-            Err(_) => {
-                return;
-            }
+            Err(_) => {}
         }
     }
 
-    /// Get a list from the sprite or stage.
-    ///
-    /// For example:
-    /// ```
-    /// fn process_list(sprite:Option<Rc<Mutex<Sprite>>>, stage:Rc<Mutex<Stage>>) {
-    ///     let list:&mut (String,Vec<Value>) = get_list!(sprite,stage);
-    /// }
-    /// ```
-    macro_rules! get_list {
-        ( $sprite:expr, $stage:expr, $id:expr, $name:expr) => {{
-            let mut stage = $stage.lock().unwrap();
-            let list;
-            match $sprite {
-                // if a sprite is specified:
-                Some(sprite) => {
-                    let mut sprite = sprite.lock().unwrap();
-                    if let Some(l) = sprite.lists.get_mut(&$id) {
-                        // if the list exists in the sprite, return it.
-                        //return
-                        list = l
-                    } else if let Some(l) = stage.lists.get_mut(&$id) {
-                        // otherwise, look in the stage, and if the stage has it, return it.
-                        //return
-                        list = l
-                    } else {
-                        // else create a new list in the sprite, and return it.
-                        stage.lists.insert($id.clone(), ($name, Vec::new()));
-                        //return
-                        list = stage.lists.get_mut(&$id).expect("Just created id")
-                    }
-                }
-                None => {
-                    // if a sprite is not specified:
-                    if let Some(l) = stage.lists.get_mut(&$id) {
-                        // check if the list exists in the stage, and if so, return it.
-                        //return
-                        list = l
-                    } else {
-                        // otherwise create a new list in the stage and return it.
-                        stage.lists.insert($id.clone(), ($name, Vec::new()));
-                        //return
-                        list = stage.lists.get_mut(&$id).expect("Just created id")
-                    }
-                }
-            };
-            list
-        }};
-    }
+    
 
     /// Set the costume.
     ///
@@ -718,7 +663,7 @@ mod blocks {
 
     /// Join two strings.
     pub fn join(a: Value, b: Value) -> Value {
-        Value::String(format!("{}{}", a.to_string(), b.to_string()))
+        Value::String(format!("{}{}", a, b))
     }
 
     pub fn letter_of(letter: Value, string: Value) -> Value {
@@ -726,10 +671,10 @@ mod blocks {
         index -= 1;
         let s: String = string.into();
 
-        return Value::from(match s.chars().nth(index) {
+        Value::from(match s.chars().nth(index) {
             Some(x) => x.to_string(),
             None => String::new(),
-        });
+        })
     }
 
     pub fn length(string: Value) -> Value {
@@ -747,13 +692,13 @@ mod blocks {
 
     pub fn round(num: Value) -> Value {
         let n: f32 = num.into();
-        return Value::Num(n.round());
+        Value::Num(n.round())
     }
 
     pub fn modulus(num1: Value, num2: Value) -> Value {
         let n: f32 = num1.into();
         let modulus: f32 = num2.into();
-        return Value::Num(n % modulus);
+        Value::Num(n % modulus)
     }
 
     pub fn mathop(operator: Value, num: Value) -> Value {
@@ -816,8 +761,8 @@ mod blocks {
         let stdin = io::stdin();
         stdin.read_line(&mut buffer).expect("Input should not fail");
 
-        buffer = buffer.replace("\r","");
-        buffer = buffer.replace("\n","");
+        buffer = buffer.replace('\r',"");
+        buffer = buffer.replace('\n',"");
 
         let mut stage = stage.lock().unwrap();
         stage.set_answer(Value::from(buffer));
@@ -825,7 +770,7 @@ mod blocks {
 
     pub fn answer(stage: Rc<Mutex<Stage>>) -> Value {
         let stage = stage.lock().unwrap();
-        return stage.get_answer();
+        stage.get_answer()
     }
 
     /// Calculate the days since 2000.
@@ -846,7 +791,7 @@ mod blocks {
             + (remainder.num_seconds() as f32 / (24.0 * 60.0 * 60.0))
             + (remainder.num_milliseconds() as f32 / (24.0 * 60.0 * 60.0 * 1000.0));
 
-        return Value::Num(to_return);
+        Value::Num(to_return)
     }
 
     pub fn username() -> Value {
@@ -962,7 +907,7 @@ impl Value {
         if index < 1 || index > length {
             return Err(());
         }
-        return Ok(index);
+        Ok(index)
     }
 }
 
@@ -971,7 +916,7 @@ impl PartialEq for Value {
         if self.partial_cmp(other) == Some(std::cmp::Ordering::Equal) {
             return true;
         }
-        return false;
+        false
     }
 }
 
@@ -1019,23 +964,23 @@ impl PartialOrd for Value {
 
 impl Default for Value {
     fn default() -> Self {
-        return Self::Num(0.0);
+        Self::Num(0.0)
     }
 }
 
 /// A macro to convert Values to numbers
 macro_rules! value_into {
     ($t:ident) => {
-        impl Into<$t> for Value {
-            fn into(self) -> $t {
-                match self {
-                    Self::String(_) => 0 as $t,
-                    Self::Bool(x) => match x {
+        impl From<Value> for $t {
+            fn from(val: Value) -> $t {
+                match val {
+                    Value::String(_) => 0 as $t,
+                    Value::Bool(x) => match x {
                         true => 1 as $t,
                         false => 0 as $t,
                     },
-                    Self::Null => 0 as $t,
-                    Self::Num(x) => {
+                    Value::Null => 0 as $t,
+                    Value::Num(x) => {
                         if x.is_nan() {
                             return 0 as $t;
                         }
@@ -1078,7 +1023,7 @@ fn toNumber(input: &Value) -> f32 {
     if n.is_nan() {
         return 0.0;
     }
-    return n;
+    n
 }
 
 fn String(input: &Value) -> String {
@@ -1089,7 +1034,7 @@ fn String(input: &Value) -> String {
             true => String::from("true"),
             false => String::from("false"),
         },
-        Value::Num(x) => format!("{}", x), // Possibly make sure this conforms to javascrip?
+        Value::Num(x) => format!("{}", x), // Possibly make sure this conforms to javascript?
                                            // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Number/toString
     }
 }
@@ -1148,9 +1093,9 @@ impl From<bool> for Value {
     }
 }
 
-impl Into<String> for Value {
-    fn into(self) -> String {
-        match self {
+impl From<Value> for String {
+    fn from(val:Value) -> String {
+        match val {
             Value::Num(x) => format!("{}", x),
             Value::String(x) => x,
             Value::Bool(x) => {
@@ -1165,19 +1110,11 @@ impl Into<String> for Value {
     }
 }
 
-impl Into<bool> for Value {
-    fn into(self) -> bool {
-        match self {
-            Value::Num(x) => match x as i32 {
-                0 => false,
-                _ => true,
-            },
-            Value::String(x) => match &*x.to_lowercase() {
-                "" => false,
-                "0" => false,
-                "false" => false,
-                _ => true,
-            },
+impl From<Value> for bool {
+    fn from(val: Value) -> bool {
+        match val {
+            Value::Num(x) => !matches!(x as i32, 0),
+            Value::String(x) => !matches!(&*x.to_lowercase(), "" | "0" | "false"),
             Value::Bool(x) => x,
             Value::Null => false,
         }
@@ -1363,7 +1300,7 @@ impl SpriteBuilder {
 }
 
 pub struct Sprite {
-    /// Whether the sprite is visibile.  Defaults to true.
+    /// Whether the sprite is visible.  Defaults to true.
     visible: bool,
     /// The x-coordinate.  Defaults to 0.
     x: f32,
@@ -1420,7 +1357,7 @@ pub struct Costume {
 
 impl Costume {
     fn new(name: String, path: PathBuf, scale: f32) -> Result<Self, &'static str> {
-        let texture = get_texture_from_path(path.clone(), scale)?;
+        let texture = get_texture_from_path(path, scale)?;
         //let name = path.file_stem().unwrap().to_str().unwrap().to_string();
 
         Ok(Self {
@@ -1442,7 +1379,7 @@ impl Costume {
     }
 }
 
-/// An emty type that implements future.
+/// An empty type that implements future.
 struct EmptyFuture {}
 
 /// A future that always returns `()` immediately.
@@ -1482,9 +1419,7 @@ fn dummy_waker() -> Waker {
     unsafe { Waker::from_raw(dummy_raw_waker()) }
 }
 
-async fn yield_fn() -> () {
-    ()
-}
+async fn yield_fn(){}
 
 /// This is a basic Future for other functions to yield. It returns Pending the
 /// first time it is polled and Ready the second time.
@@ -1655,11 +1590,11 @@ impl Program {
     }
 
     fn new() -> Self {
-        return Program {
+        Program {
             threads: Vec::new(),
             gl: GlGraphics::new(OpenGL::V3_2),
             costumes: Vec::new(),
-        };
+        }
     }
 
     /// Simulate the flag being clicked by starting all threads with FlagClicked hat blocks.
@@ -1734,7 +1669,7 @@ impl Program {
 
     /// Get a sprite by a name, or return null
     fn get_sprite(&self, name: String) -> Option<Rc<Mutex<Sprite>>> {
-        return None;
+        None
         //for sprite in self.objects.clone(){
         //    let locked_sprite = sprite.lock().unwrap();
         //    if locked_sprite.name == name{
@@ -1793,7 +1728,7 @@ fn get_texture_from_path(
     )
     .or(Err("Could not create texture"));
 
-    return texture;
+    texture
 }
 
 pub struct StageBuilder {
@@ -1878,7 +1813,7 @@ pub struct Stage {
     /// Determines if video is on or off.
     video_state: VideoState,
     /// The video transparency  Defaults to 50.  This has no effect if `videoState`
-    /// is off or the project does not use an exptension with video input.
+    /// is off or the project does not use an extension with video input.
     video_transparency: i32,
     /// The text to speech language.  Defaults to the editor language.
     text_to_speech_language: String,
@@ -1905,7 +1840,7 @@ impl Stage {
     }
 
     fn get_answer(&self)->Value{
-        return self.answer.clone();
+        self.answer.clone()
     }
 
     fn set_costume(&mut self, mut index: f32) {
@@ -1933,7 +1868,7 @@ impl Stage {
                 return Some(sprite.clone());
             }
         }
-        return None;
+        None
     }
 }
 
@@ -1977,7 +1912,7 @@ pub enum StartType {
     SpriteClicked,
     BackdropSwitches,
     LoudnessGreater,
-    RecieveMessage,
+    ReceiveMessage,
     StartAsClone,
     CustomBlock,
     NoStart,
@@ -1994,7 +1929,7 @@ impl Display for StartType {
                 StartType::SpriteClicked => "StartType::SpriteClicked",
                 StartType::BackdropSwitches => "StartType::BackdropSwitches",
                 StartType::LoudnessGreater => "StartType::LoudnessGreater",
-                StartType::RecieveMessage => "StartType::RecieveMessage",
+                StartType::ReceiveMessage => "StartType::ReceiveMessage",
                 StartType::StartAsClone => "StartType::StartAsClone",
                 StartType::CustomBlock => "StartType::CustomBlock",
                 StartType::NoStart => "StartType::NoStart",
@@ -2042,8 +1977,8 @@ impl Keyboard {
 
     fn key_arg_to_scratch_key(&self, arg: Value) -> String {
         if let Value::Num(x) = arg {
-            if x >= 48.0 && x <= 90.0 {
-                return String::from_utf16(&[x as u16]).expect("Propper range.");
+            if (48.0..=90.0).contains(&x){
+                return String::from_utf16(&[x as u16]).expect("Proper range.");
             }
             return match x as u16 {
                 32 => self.key_name.get("space").unwrap().to_string(),
@@ -2068,14 +2003,14 @@ impl Keyboard {
         }
 
         if keyArg.len() > 1 {
-            keyArg = keyArg.chars().nth(0).unwrap().into();
+            keyArg = keyArg.chars().next().unwrap().into();
         }
 
-        if keyArg == " ".to_string() {
+        if keyArg == *" " {
             return self.key_name.get("SPACE").unwrap().to_string();
         }
 
-        return keyArg.to_uppercase();
+        keyArg.to_uppercase()
     }
 
     fn scratch_key_to_Key(&self, arg: String) -> Key {
@@ -2160,13 +2095,13 @@ impl Keyboard {
     fn get_key_down(&self, arg: Value) -> bool {
         if let Value::String(x) = &arg {
             if x == &String::from("any") {
-                return self.keys_pressed.len() > 0;
+                return !self.keys_pressed.is_empty();
             }
         }
 
         let scratchKey = self.scratch_key_to_Key(self.key_arg_to_scratch_key(arg));
 
-        return self.keys_pressed.get(&scratchKey).is_some();
+        self.keys_pressed.get(&scratchKey).is_some()
     }
 }
 
@@ -2207,10 +2142,10 @@ impl Mouse {
         y *= ratio_y;
 
         // convert coordinates from origin at top-left to origin at center.
-        x = x - (Into::<f32>::into(SCRATCH_HALF_WIDTH));
+        x -= Into::<f32>::into(SCRATCH_HALF_WIDTH);
         y = -(y - (Into::<f32>::into(SCRATCH_HALF_HEIGHT)));
 
-        return (x, y);
+        (x, y)
     }
 
     fn x(&self) -> Value {

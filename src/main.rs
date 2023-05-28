@@ -1,24 +1,19 @@
 use crate::target::{RotationStyle, VideoState};
 use json::{self, JsonValue};
 use rand::Rng;
-use resvg;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
 use std::io;
 use std::io::Read;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 use target::StartType;
-use ureq;
-use ureq::serde_json;
-use zip;
-use indicatif::ProgressBar;
 
 use clap::Parser;
 
 mod target;
-pub mod thread;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -203,22 +198,16 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
     blocks.insert("pen_stamp", "stamp(sprite.clone().unwrap(),stage.clone());");
     blocks.insert("pen_clear", "clear_pen(stage.clone());");
 
-    return blocks;
+    blocks
 }
 
-/// This represents a custom block.
-struct CustomBlock {
-    code: String,
-    /// A mapping of argument ids to names.
-    argument_ids_names: HashMap<String, String>,
-}
 
 fn main() -> Result<(),Box<dyn Error>>{
     let cli = Cli::parse();
 
     let project = get_project_online(cli.id as u32)?;
     let project_details = get_project_details(cli.id)?;
-    let mut output = match cli.output {
+    let output = match cli.output {
         Some(o) => o,
         None => PathBuf::from("./output/"),
     };
@@ -260,7 +249,7 @@ fn main() -> Result<(),Box<dyn Error>>{
     for (i,target) in project["targets"].members().enumerate() {
         println!("[{}/{}] Compiling code for {}...",i+1,project["targets"].len(),target["name"]);
         targets.push(generate_target(target, &block_reference)?);
-        get_target_assets(target, &output);
+        get_target_assets(target, &output)?;
     }
 
     let output = format!(
@@ -350,7 +339,7 @@ fn main() -> Result<(),Box<dyn Error>>{
 /// Get the `project.json` file from a scratch `sb3` file.
 fn get_project(filename: String) -> Result<JsonValue, Box<dyn Error>> {
     let file = std::path::Path::new(&filename);
-    let zipfile = std::fs::File::open(&file)?;
+    let zipfile = std::fs::File::open(file)?;
 
     let mut archive = zip::ZipArchive::new(zipfile)?;
 
@@ -369,7 +358,7 @@ fn get_project(filename: String) -> Result<JsonValue, Box<dyn Error>> {
     file.read_to_string(&mut contents)?;
 
     let project = json::parse(&contents as &str)?;
-    return Ok(project);
+    Ok(project)
 }
 
 /// Get an online scratch project.
@@ -382,7 +371,7 @@ fn get_project_online(id: u32) -> Result<JsonValue, Box<dyn Error>> {
     // I have not yet figured out how to get the project assets.)
     let project = json::parse(fetch_sb3_file(url).as_str())?;
 
-    return Ok(project);
+    Ok(project)
 }
 
 /// Turn 1 block into a rust function.  If the block
@@ -393,7 +382,7 @@ fn get_block(
     blocks: &JsonValue,
     block_reference: &HashMap<&str, &str>,
 ) -> Result<String, String> {
-    let (id, data) = block;
+    let (_id, data) = block;
     let opcode = data["opcode"].to_string();
     // println!("{}", block.1);
     let mut function;
@@ -401,13 +390,13 @@ fn get_block(
         let mut cblock = data["mutation"]["proccode"].to_string();
         cblock = cblock.replace(" %s", "_percent_s");
         cblock = cblock.replace(" %b", "_percent_b");
-        cblock = cblock.replace(" ","_");
+        cblock = cblock.replace(' ',"_");
         cblock = cblock.to_lowercase();
 
         let mut arguments = "".to_string();
 
         let argument_names =
-            json::parse(&data["mutation"]["argumentids"].as_str().unwrap()).unwrap();
+            json::parse(data["mutation"]["argumentids"].as_str().unwrap()).unwrap();
 
         for arg in argument_names.members() {
             arguments += format!(", {}", arg).as_str();
@@ -436,7 +425,7 @@ fn get_block(
             function = match input.1[1][0].as_u32().unwrap() {
                 4|5|6|7|8 => function.replacen(
                     input.0,
-                    &*format!(
+                    &format!(
                         "Value::from({})",
                         &input.1[1][1].as_str().unwrap().to_string()
                     ),
@@ -449,7 +438,7 @@ fn get_block(
                 9 => function.replacen(input.0, input.1[1][1].as_str().unwrap(), 1), // Color
                 10 => function.replacen(
                     input.0,
-                    &*format!(
+                    &format!(
                         "Value::from(String::from(r###\"{}\"###))",
                         input.1[1][1].as_str().unwrap()
                     ),
@@ -469,7 +458,7 @@ fn get_block(
                 // list
                 13 => function.replacen(
                     input.0,
-                    &*format!("get_list_contents(sprite.clone(),stage.clone(),(\"{}\".to_string(),\"{}\".to_string()))",input.1[1][1],input.1[1][2]),
+                    &format!("get_list_contents(sprite.clone(),stage.clone(),(\"{}\".to_string(),\"{}\".to_string()))",input.1[1][1],input.1[1][2]),
                     1,
                 ),
                 _ => {
@@ -488,7 +477,7 @@ fn get_block(
                     &blocks[input.1[1].as_str().unwrap()], //The object corresponding to the id
                 ),
                 blocks,           // list of blocks
-                &block_reference, //block reference
+                block_reference, //block reference
             )?
             .join("\n");
             // ... and insert the subfunction in the main function variable.
@@ -515,23 +504,23 @@ fn get_block(
             | "data_showlist" => {
                 function = function.replacen(
                     field.0,
-                    &*format!(
+                    &format!(
                         "(String::from(\"{}\"),String::from(\"{}\"))",
-                        field.1[0].to_string(), // name
-                        field.1[1].to_string()  // id
+                        field.1[0], // name
+                        field.1[1]  // id
                     ),
                     1,
                 );
             }
             "argument_reporter_string_number" => {
-                function = function.replacen(field.0, &*format!("{}.clone()", field.1[0]), 1);
+                function = function.replacen(field.0, &format!("{}.clone()", field.1[0]), 1);
                 function = function.to_lowercase();
             }
 
             _ => {
                 function = function.replacen(
                     field.0,
-                    &*format!("Value::from(String::from(\"{}\"))", field.1[0].as_str().unwrap()),
+                    &format!("Value::from(String::from(\"{}\"))", field.1[0].as_str().unwrap()),
                     1,
                 );
             }
@@ -539,7 +528,7 @@ fn get_block(
     }
 
     // Return the completed function
-    return Ok(function);
+    Ok(function)
 }
 
 /// Follow a stack of scratch blocks.
@@ -566,7 +555,7 @@ fn follow_stack(
             &blocks[current_block.1["next"].as_str().unwrap()],
         );
     }
-    return Ok(stack);
+    Ok(stack)
 }
 fn handle_custom_block(
     block: (&str, &JsonValue),
@@ -629,7 +618,6 @@ fn create_hat(
     block: (&str, &JsonValue),
     blocks: &JsonValue,
     block_reference: &HashMap<&str, &str>,
-    custom_blocks: &HashMap<String, String>,
 ) -> Result<(String, StartType, String, String, bool), String> {
     // Make sure the block is a top level block.
     if !block.1["topLevel"].as_bool().unwrap() {
@@ -656,12 +644,10 @@ fn create_hat(
         _ => return Err(String::from("Not a hat block")),
     }
 
-    let mut custom_block = false;
     let start_type = match block.1["opcode"].as_str().unwrap() {
         "procedures_call" => return Err(String::from("Custom block")),
         "event_whenflagclicked" => StartType::FlagClicked,
         "procedures_define" => {
-            custom_block = true;
             StartType::NoStart
         }
         _ => StartType::NoStart,
@@ -681,30 +667,18 @@ fn create_hat(
         block_reference,
     )?;
 
-    // let function = "fn NAME (){CONTENTS}";
-    // let name=format!{}
-    let mut function = format!(
-        //         "gen!({{
-        // let mut object:Target =yield_!(None);
-        // {}
-        // yield_!(Some(object));
-        // }})",
-        "{}",
-        contents.join("\n")
-    );
+    let mut function = contents.join("\n");
 
     let mut arguments = "".to_string();
 
     let mut rng = rand::thread_rng();
-    let mut warp = false;
     let mut custom_block = false;
     let name = if block.1["opcode"] == "procedures_definition" {
         let prototype = &blocks[block.1["inputs"]["custom_block"][1].to_string()];
         custom_block = true;
         if prototype["mutation"]["warp"] == "true" {
-            warp = false; //true
+            function = function.replace("Yield::Start.await;", ""); // remove all yields
         }
-        function = function.replace("Yield::Start.await;", ""); // remove all yields
 
         // the argument list is stored as an array _inside_ a string, so we have to parse it.
         let argument_names =
@@ -717,7 +691,7 @@ fn create_hat(
         let mut proccode = prototype["mutation"]["proccode"].to_string();
         proccode = proccode.replace(" %s", "_percent_s");
         proccode = proccode.replace(" %b", "_percent_b");
-        proccode = proccode.replace(" ","_");
+        proccode = proccode.replace(' ',"_");
         proccode = proccode.to_lowercase();
         format!("procedures_definition_{}", proccode)
     } else {
@@ -729,13 +703,13 @@ fn create_hat(
     };
 
     // TODO Remove this
-    return Ok((
-        String::from(function),
+    Ok((
+        function,
         start_type,
         name,
         arguments,
         custom_block,
-    ));
+    ))
 }
 
 /// Returns all stacks of blocks.
@@ -750,29 +724,26 @@ fn create_all_hats(
     let mut custom_blocks: HashMap<String, String> = HashMap::new();
     for block in blocks.entries() {
         let cblock = handle_custom_block(block, blocks, block_reference);
-        match cblock {
-            Some((procode, func)) => {
-                custom_blocks.insert(procode, func);
-            }
-            None => {}
+
+        if let Some((procode,func)) = cblock{
+            custom_blocks.insert(procode,func);
         };
     }
 
     let custom_block_reference = custom_blocks.clone();
     // Expand all custom blocks in the definitions of the custom blocks
-    for (_name, definition) in &mut custom_blocks {
+    for definition in custom_blocks.values_mut(){
         expand_custom_blocks(definition, &custom_block_reference);
     }
 
-    let name_arg;
-    if name == "Stage" {
-        name_arg = "None".to_string();
+    let name_arg= if name == "Stage" {
+        "None".to_string()
     } else {
-        name_arg = format!("Some({}.clone())", name);
-    }
+        format!("Some({}.clone())", name)
+    };
 
     for block in blocks.entries() {
-        let hat = create_hat(block, blocks, block_reference, &custom_blocks);
+        let hat = create_hat(block, blocks, block_reference);
         match hat {
             Ok((function, start_type, function_name, arguments, custom_block)) => {
                 match custom_block{
@@ -796,8 +767,7 @@ program.add_thread(Thread::new(stack_{function_name}({sprite_name},Stage.clone()
         }
     }
 
-    //return Err(String::from("Bad"));
-    return Ok(format!("{}", contents));
+    Ok(contents)
 }
 
 /// Expand all the custom blocks in a function.
@@ -822,14 +792,14 @@ fn get_variables(target: &JsonValue) -> Result<String, &str> {
 
         // if the value is a string, include quotation marks                    v        v
         if value[1].is_string() {
-            to_return.push_str(&*format!(
+            to_return.push_str(&format!(
                 ".add_variable(String::from(r###\"{key}\"###),(String::from(r###\"{name}\"###),Value::from(r###\"{value}\"###)))\n",
                 name = value[0],
                 value = value[1],
             ))
         } else {
-            //otherwise don't include qotation marks.
-            to_return.push_str(&*format!(
+            //otherwise don't include quotation marks.
+            to_return.push_str(&format!(
                 ".add_variable(String::from(\"{key}\"),(String::from(\"{name}\"),Value::from({value})))\n",
                 name = value[0],
                 value = value[1],
@@ -840,7 +810,7 @@ fn get_variables(target: &JsonValue) -> Result<String, &str> {
     // to_return.push_str("])");
 
     // return Ok(to_return);
-    return Ok(to_return);
+    Ok(to_return)
 }
 
 fn get_lists(target: &JsonValue) -> Result<String, &str> {
@@ -850,20 +820,20 @@ fn get_lists(target: &JsonValue) -> Result<String, &str> {
 
         for item in value[1].members() {
             if item.is_string() {
-                list.push_str(&*format!("Value::from(\"{}\")", item));
+                list.push_str(&format!("Value::from(\"{}\")", item));
             } else {
-                list.push_str(&*format!("Value::from({})", item));
+                list.push_str(&format!("Value::from({})", item));
             }
-            list.push_str(",");
+            list.push(',');
         }
-        list.push_str("]");
+        list.push(']');
 
-        to_return.push_str(&*format!(
+        to_return.push_str(&format!(
             ".add_list(String::from(\"{key}\"),(String::from(\"{name}\"),{list}))",
             name = value[0],
         ))
     }
-    return Ok(to_return);
+    Ok(to_return)
 }
 
 /// Writes the output rust file.
@@ -877,7 +847,7 @@ fn write_to_file(
     // Get the library file to include
     let lib = include_str!("../target/target.rs");
 
-    let function = create_hat(block, blocks, block_reference, &HashMap::new()).unwrap();
+    let function = create_hat(block, blocks, block_reference).unwrap();
 
     fs::write(filename, format!("{}\n\n\n{}", lib, function.0)).expect("Could not write file.");
 }
@@ -943,7 +913,7 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
         .unwrap(); */
         let function = create_all_hats(
             &target["blocks"],
-            &block_reference,
+            block_reference,
             target["name"].to_string(),
         )?;
 
@@ -999,9 +969,6 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
     }
 }
 
-// struct blockstack
-//
-// type of hat
 
 /// Fetch a scratch sb3 file.
 fn fetch_sb3_file(url: String) -> String {
@@ -1013,7 +980,7 @@ fn fetch_sb3_file(url: String) -> String {
     // and copy the contents of the response to the new file.
     //response.copy_to(&mut out);
     // io::copy(&mut response,&mut out)?;
-    return response.into_string().unwrap();
+    response.into_string().unwrap()
 }
 
 /// Get the project token for a scratch project.
@@ -1031,9 +998,9 @@ fn fetch_project_token(id: u32) -> Result<String, &'static str> {
     let token = &json["project_token"];
 
     if token.is_null() {
-        return Err("Token does not exist");
+        Err("Token does not exist")
     } else {
-        return Ok(token.to_string());
+        Ok(token.to_string())
     }
 }
 
@@ -1044,7 +1011,7 @@ fn format_file(filename: &PathBuf) -> io::Result<Output> {
 }
 
 fn create_project(path: &PathBuf) -> Result<(), io::Error> {
-    Command::new("cargo").arg("new").arg(&path).output()?;
+    Command::new("cargo").arg("new").arg(path).output()?;
 
     let toml = "
     [package]
@@ -1070,18 +1037,18 @@ fn create_project(path: &PathBuf) -> Result<(), io::Error> {
     };
     fs::write(toml_path, toml)?;
 
-    return Ok(());
+    Ok(())
 }
 
 /// Download the assets for a target.
-fn get_target_assets(target: &JsonValue, path: &PathBuf) {
+fn get_target_assets(target: &JsonValue, path: &Path) -> Result<(),Box<dyn Error>> {
     // create the asset directory
     fs::create_dir_all({
-        let mut p = path.clone();
+        let mut p = path.to_path_buf();
         p.push("assets");
         p.push(target["name"].to_string());
         p
-    });
+    })?;
 
     // iterate through all costumes
     for costume in target["costumes"].members() {
@@ -1089,22 +1056,22 @@ fn get_target_assets(target: &JsonValue, path: &PathBuf) {
             "https://assets.scratch.mit.edu/{}",
             costume["md5ext"]
         ))
-        .call()
-        .expect("Could not download asset file");
+        .call()?;
+        // .expect("Could not download asset file");
 
 
         let mut file = std::fs::File::create({
-            let mut p = path.clone();
+            let mut p = path.to_path_buf();
             p.push("assets");
             p.push(target["name"].to_string());
             p.push(format!("{}.{}", costume["name"], costume["dataFormat"]));
             p
-        })
-        .unwrap();
+        })?;
 
         let mut content = response.into_reader();
-        std::io::copy(&mut content, &mut file).unwrap();
+        std::io::copy(&mut content, &mut file)?;
     }
+    Ok(())
 }
 
 /// Get all the target costumes
@@ -1114,12 +1081,6 @@ fn target_costumes(target: &JsonValue) -> String {
     for costume in target["costumes"].members() {
         let costumename = &costume["name"];
         let format = &costume["dataFormat"];
-        let stage_or_sprite;
-        if target["isStage"].as_bool().unwrap() {
-            stage_or_sprite = "stage";
-        } else {
-            stage_or_sprite = "sprite";
-        }
         let costume_name = costume["name"].to_string();
 
         // TODO handle png files properly
@@ -1133,7 +1094,7 @@ fn target_costumes(target: &JsonValue) -> String {
         to_return.push_str(&format!(".add_costume(Costume::new(String::from(\"{costume_name}\"),PathBuf::from(\"assets/{name}/{costumename}.{format}\"),1.0).unwrap())\n"))
     }
 
-    return to_return;
+    to_return
 }
 
 /// Convert all the svg assets in a target to pngs.
@@ -1170,7 +1131,7 @@ fn convert_svg_png(target: &JsonValue) {
 
 
 /// Create the readme for a given scratch project
-fn create_readme(json:&json::JsonValue) -> Result<String,ureq::Error>{
+fn create_readme(json:&json::JsonValue) -> Result<String,Box<dyn Error>>{
 
     let title = &json["title"].as_str().unwrap();
     let description = &json["description"].as_str().unwrap();
@@ -1190,7 +1151,7 @@ fn create_readme(json:&json::JsonValue) -> Result<String,ureq::Error>{
 
 
 fn get_project_details(id:u64)->Result<JsonValue,Box<dyn Error>>{
-    let response = ureq::get(&*format!("https://api.scratch.mit.edu/projects/{}",id)).call()?;
-    let json:JsonValue = json::parse(&*response.into_string()?)?;
-    return Ok(json.into());
+    let response = ureq::get(&format!("https://api.scratch.mit.edu/projects/{}",id)).call()?;
+    let json:JsonValue = json::parse(&response.into_string()?)?;
+    Ok(json)
 }
