@@ -9,6 +9,7 @@
 extern crate rand;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use core::task::{RawWaker, RawWakerVTable, Waker};
+use std::collections::VecDeque;
 use genawaiter::rc::{gen, Co};
 use genawaiter::{yield_, GeneratorState};
 use glutin_window::GlutinWindow;
@@ -49,8 +50,8 @@ const SCRATCH_HALF_HEIGHT: Value = Value::Num(180.0);
 const LIST_ITEM_LIMIT: Value = Value::Num(20000.0); // TODO check this
 
 mod blocks {
-    use super::{toNumber, Stamp, LIST_ITEM_LIMIT, SCRATCH_HALF_HEIGHT, SCRATCH_HALF_WIDTH};
-    use super::{Keyboard, Sprite, Stage, Target, Value, Yield};
+    use super::{toNumber, Stamp, LIST_ITEM_LIMIT, SCRATCH_HALF_HEIGHT, SCRATCH_HALF_WIDTH, StartType};
+    use super::{Keyboard, Sprite, Stage, Value, Yield};
     use chrono::TimeZone;
     use core::f32::consts::PI;
     use rand::Rng;
@@ -182,7 +183,7 @@ mod blocks {
                 let current_costume = stage.costume;
 
                 let index = stage.costumes.iter().position(|c| c.name == name);
-                if let Some(i) = index{
+                if let Some(i) = index {
                     stage.set_costume(i as f32);
                 } else if name == "next backdrop" {
                     stage.set_costume(current_costume as f32 + 1.0);
@@ -576,9 +577,9 @@ mod blocks {
 
         // TODO handle deleting all of the list. (This is not supported yet in the .to_list_index() function).
 
-        if let Ok(x) = index{
+        if let Ok(x) = index {
             list.remove(x - 1);
-            replace_list(sprite ,stage ,list, (name, id));
+            replace_list(sprite, stage, list, (name, id));
         }
     }
 
@@ -637,8 +638,6 @@ mod blocks {
         }
     }
 
-    
-
     /// Set the costume.
     ///
     /// DEPRECATED
@@ -646,14 +645,6 @@ mod blocks {
         match object {
             Some(sprite) => sprite.costume = costume,
             None => *globalCostume = costume,
-        }
-    }
-
-    /// Set the costume of a target.
-    pub fn set_costume_better(object: &mut Target, costume: usize) {
-        match &mut object.sprite {
-            Some(x) => x.costume = costume,
-            None => object.stage.costume = costume,
         }
     }
 
@@ -742,6 +733,51 @@ mod blocks {
         }
     }
 
+    pub fn create_clone(stage: Rc<Mutex<Stage>>, sprite: Rc<Mutex<Sprite>>, to_clone: Value) {
+        let mut stage = stage.lock().unwrap();
+
+        let to_clone = to_clone.to_string();
+
+        // define the reference to the sprite to be cloned
+        let clone_target = match &*to_clone {
+            "_myself_" => sprite,
+            x => {
+                let t = stage.get_sprite(x.to_string());
+                if t.is_none() {
+                    return;
+                }
+                t.unwrap()
+            }
+        };
+
+        let mut clone = clone_target.lock().unwrap().clone();
+        // TODO make new clone go behind old sprite
+
+        stage.threads_to_start.push_back(StartType::StartAsClone(clone.name.clone()));
+        
+        clone.name = clone.name + "_clone";
+        stage.add_sprite(Rc::new(Mutex::new(clone)));
+        
+    }
+
+    pub fn delete_this_clone(stage: Rc<Mutex<Stage>>, sprite: Rc<Mutex<Sprite>>) {
+        let mut stage = stage.lock().unwrap();
+        let sprite = sprite.lock().unwrap();
+
+        if !sprite.clone {
+            return;
+        }
+
+        let index = stage
+            .sprites
+            .iter()
+            .position(|x| *x.lock().unwrap() == *sprite);
+        if index.is_none() {
+            return;
+        }
+        stage.sprites.remove(index.unwrap());
+    }
+
     pub fn generate_random(from: Value, to: Value) -> Value {
         let from: u32 = from.into();
         let to: u32 = to.into();
@@ -761,8 +797,8 @@ mod blocks {
         let stdin = io::stdin();
         stdin.read_line(&mut buffer).expect("Input should not fail");
 
-        buffer = buffer.replace('\r',"");
-        buffer = buffer.replace('\n',"");
+        buffer = buffer.replace('\r', "");
+        buffer = buffer.replace('\n', "");
 
         let mut stage = stage.lock().unwrap();
         stage.set_answer(Value::from(buffer));
@@ -819,7 +855,7 @@ mod blocks {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum RotationStyle {
     AllAround,
     LeftRight,
@@ -1094,7 +1130,7 @@ impl From<bool> for Value {
 }
 
 impl From<Value> for String {
-    fn from(val:Value) -> String {
+    fn from(val: Value) -> String {
         match val {
             Value::Num(x) => format!("{}", x),
             Value::String(x) => x,
@@ -1251,6 +1287,7 @@ impl SpriteBuilder {
             variables: self.variables,
             costume: self.costume,
             costumes: self.costumes,
+            clone: false, // we never build a clone
         }
     }
 
@@ -1329,6 +1366,11 @@ pub struct Sprite {
     /// A list of paths for costumes. Each item is an index to the program
     /// costume list.
     costumes: Vec<Costume>,
+
+    /// Whether or not this sprite is a clone.
+    ///
+    /// This influences whether clone blocks can run.
+    clone: bool,
 }
 
 impl Sprite {
@@ -1346,6 +1388,51 @@ impl Sprite {
     }
 }
 
+impl Clone for Sprite {
+    fn clone(&self) -> Self {
+        Self {
+            visible: self.visible.clone(),
+            x: self.x.clone(),
+            y: self.y.clone(),
+            size: self.size.clone(),
+            direction: self.direction.clone(),
+            draggable: self.draggable.clone(),
+            rotation_style: self.rotation_style.clone(),
+            name: self.name.clone(),
+            variables: self.variables.clone(),
+            lists: self.lists.clone(),
+            costume: self.costume.clone(),
+            costumes: self
+                .costumes
+                .iter()
+                .map(|c| {
+                    Costume::new(c.name.clone(), c.path.clone(), c.scale)
+                        .expect("Creating costume will not fail")
+                })
+                .collect(),
+            clone: self.clone.clone(),
+        }
+    }
+}
+
+impl PartialEq for Sprite {
+    fn eq(&self, other: &Self) -> bool {
+        self.visible == other.visible
+            && self.x == other.x
+            && self.y == other.y
+            && self.size == other.size
+            && self.direction == other.direction
+            && self.draggable == other.draggable
+            && self.rotation_style == other.rotation_style
+            && self.name == other.name
+            && self.variables == other.variables
+            && self.lists == other.lists
+            && self.costume == other.costume
+            // && self.costumes == other.costumes
+            && self.clone == other.clone
+    }
+}
+
 /// A costume or backdrop
 pub struct Costume {
     name: String,
@@ -1353,11 +1440,13 @@ pub struct Costume {
     rotation_center_y: u32,
     texture: Texture,
     image: Image,
+    path: PathBuf,
+    scale: f32,
 }
 
 impl Costume {
     fn new(name: String, path: PathBuf, scale: f32) -> Result<Self, &'static str> {
-        let texture = get_texture_from_path(path, scale)?;
+        let texture = get_texture_from_path(path.clone(), scale)?;
         //let name = path.file_stem().unwrap().to_str().unwrap().to_string();
 
         Ok(Self {
@@ -1366,6 +1455,8 @@ impl Costume {
             rotation_center_y: 0,
             texture,
             image: Image::new(),
+            path,
+            scale,
         })
     }
 
@@ -1419,7 +1510,7 @@ fn dummy_waker() -> Waker {
     unsafe { Waker::from_raw(dummy_raw_waker()) }
 }
 
-async fn yield_fn(){}
+async fn yield_fn() {}
 
 /// This is a basic Future for other functions to yield. It returns Pending the
 /// first time it is polled and Ready the second time.
@@ -1529,7 +1620,7 @@ impl Thread {
 
 /// The main project class.  This is in charge of running threads and
 /// redrawing the screen.
-struct Program {
+pub struct Program {
     threads: Vec<Thread>,
     //objects: Vec<Rc<Mutex<Sprite>>>,
     gl: GlGraphics,
@@ -1604,6 +1695,22 @@ impl Program {
                 thread.running = true;
             }
         }
+    }
+
+    fn start_threads(&mut self,stage:Rc<Mutex<Stage>>){
+        let mut stage = stage.lock().unwrap();
+
+        for i in stage.threads_to_start.drain(0..){
+            for thread in &mut self.threads{
+                if thread.start == i {
+                    
+                }
+            }
+        }
+
+        // while stage.threads_to_start.len() > 0{
+        //     let thread = stage.threads_to_start.pop_front().expect("Element exists");
+        // }
     }
 
     /// Renders a red square.
@@ -1770,6 +1877,7 @@ impl StageBuilder {
             mouse: Mouse::new(),
             stamps: Vec::new(),
             answer: Value::from(String::new()),
+            threads_to_start: VecDeque::new(),
         }
     }
     pub fn tempo(mut self, tempo: i32) -> Self {
@@ -1831,15 +1939,17 @@ pub struct Stage {
 
     stamps: Vec<Stamp>,
     /// The current value of answer.
-    answer:Value,
+    answer: Value,
+
+    threads_to_start: VecDeque<StartType>,
 }
 
 impl Stage {
-    fn set_answer(&mut self,v:Value){
+    fn set_answer(&mut self, v: Value) {
         self.answer = v;
     }
 
-    fn get_answer(&self)->Value{
+    fn get_answer(&self) -> Value {
         self.answer.clone()
     }
 
@@ -1872,40 +1982,8 @@ impl Stage {
     }
 }
 
-/// This is a target.
-///
-/// A target is a combination of a sprite(or not) and the stage. If the sprite
-/// is absent(None), the target is assumed to be the stage.
-pub struct Target {
-    /// The stage.
-    ///
-    /// This is an owned variable, meaning it is a copy of the real stage. The
-    /// real stage should be set to this copy when the target is returned from a
-    /// thread.
-    stage: Stage,
-    sprite: Option<Sprite>,
-}
-
-impl Target {
-    /// Create a new sprite target.
-    fn new(sprite: Sprite, stage: Stage) -> Self {
-        Self {
-            sprite: Some(sprite),
-            stage,
-        }
-    }
-
-    /// Create a new stage target.
-    fn new_stage(stage: Stage) -> Self {
-        Self {
-            sprite: None,
-            stage,
-        }
-    }
-}
-
 /// The type of thread starter, such as flagClick.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StartType {
     FlagClicked,
     KeyPressed,
@@ -1913,7 +1991,7 @@ pub enum StartType {
     BackdropSwitches,
     LoudnessGreater,
     ReceiveMessage,
-    StartAsClone,
+    StartAsClone(String),
     CustomBlock,
     NoStart,
 }
@@ -1924,15 +2002,15 @@ impl Display for StartType {
             f,
             "{}",
             match self {
-                StartType::FlagClicked => "StartType::FlagClicked",
-                StartType::KeyPressed => "StartType::KeyPressed",
-                StartType::SpriteClicked => "StartType::SpriteClicked",
-                StartType::BackdropSwitches => "StartType::BackdropSwitches",
-                StartType::LoudnessGreater => "StartType::LoudnessGreater",
-                StartType::ReceiveMessage => "StartType::ReceiveMessage",
-                StartType::StartAsClone => "StartType::StartAsClone",
-                StartType::CustomBlock => "StartType::CustomBlock",
-                StartType::NoStart => "StartType::NoStart",
+                StartType::FlagClicked => "StartType::FlagClicked".to_string(),
+                StartType::KeyPressed => "StartType::KeyPressed".to_string(),
+                StartType::SpriteClicked => "StartType::SpriteClicked".to_string(),
+                StartType::BackdropSwitches => "StartType::BackdropSwitches".to_string(),
+                StartType::LoudnessGreater => "StartType::LoudnessGreater".to_string(),
+                StartType::ReceiveMessage => "StartType::ReceiveMessage".to_string(),
+                StartType::StartAsClone(sprite) => format!("StartType::StartAsClone({sprite})"),
+                StartType::CustomBlock => "StartType::CustomBlock".to_string(),
+                StartType::NoStart => "StartType::NoStart".to_string(),
             }
         )
     }
@@ -1977,7 +2055,7 @@ impl Keyboard {
 
     fn key_arg_to_scratch_key(&self, arg: Value) -> String {
         if let Value::Num(x) = arg {
-            if (48.0..=90.0).contains(&x){
+            if (48.0..=90.0).contains(&x) {
                 return String::from_utf16(&[x as u16]).expect("Proper range.");
             }
             return match x as u16 {

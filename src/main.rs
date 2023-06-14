@@ -94,6 +94,9 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
         "control_repeat_until",
         "while !<Value as Into<bool>>::into(CONDITION){SUBSTACK\nYield::Start.await;}",
     );
+    blocks.insert("control_create_clone_of","create_clone(stage.clone(),sprite.clone().unwrap(),CLONE_OPTION);");
+    blocks.insert("control_create_clone_of_menu","Value::from(CLONE_OPTION)");
+    blocks.insert("control_start_as_clone","");
 
     // blocks.insert("looks_say", "object.say(String::from(\"MESSAGE\"));");
     blocks.insert("looks_say", "say(MESSAGE);");
@@ -618,6 +621,7 @@ fn create_hat(
     block: (&str, &JsonValue),
     blocks: &JsonValue,
     block_reference: &HashMap<&str, &str>,
+    name: String,
 ) -> Result<(String, StartType, String, String, bool), String> {
     // Make sure the block is a top level block.
     if !block.1["topLevel"].as_bool().unwrap() {
@@ -647,6 +651,7 @@ fn create_hat(
     let start_type = match block.1["opcode"].as_str().unwrap() {
         "procedures_call" => return Err(String::from("Custom block")),
         "event_whenflagclicked" => StartType::FlagClicked,
+        "control_start_as_clone" => StartType::StartAsClone(name),
         "procedures_define" => {
             StartType::NoStart
         }
@@ -743,7 +748,7 @@ fn create_all_hats(
     };
 
     for block in blocks.entries() {
-        let hat = create_hat(block, blocks, block_reference);
+        let hat = create_hat(block, blocks, block_reference,name.clone());
         match hat {
             Ok((function, start_type, function_name, arguments, custom_block)) => {
                 match custom_block{
@@ -847,7 +852,7 @@ fn write_to_file(
     // Get the library file to include
     let lib = include_str!("../target/target.rs");
 
-    let function = create_hat(block, blocks, block_reference).unwrap();
+    let function = create_hat(block, blocks, block_reference,"test_sprite".to_string()).unwrap();
 
     fs::write(filename, format!("{}\n\n\n{}", lib, function.0)).expect("Could not write file.");
 }
