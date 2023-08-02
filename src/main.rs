@@ -295,7 +295,8 @@ fn main() -> Result<(),Box<dyn Error>>{
                     program.render(&args,Stage.clone(),window.size());
                 }}
                 if let Some(args) = e.update_args(){{
-                    program.tick(/*Stage.clone()*/);
+                    program.tick(Stage.clone());
+                    
                 }}
                 if let Some(Button::Keyboard(key)) = e.press_args(){{
                     let mut s=Stage.lock().unwrap();
@@ -621,7 +622,7 @@ fn create_hat(
     block: (&str, &JsonValue),
     blocks: &JsonValue,
     block_reference: &HashMap<&str, &str>,
-    name: String,
+    sprite_name: String,
 ) -> Result<(String, StartType, String, String, bool), String> {
     // Make sure the block is a top level block.
     if !block.1["topLevel"].as_bool().unwrap() {
@@ -651,7 +652,7 @@ fn create_hat(
     let start_type = match block.1["opcode"].as_str().unwrap() {
         "procedures_call" => return Err(String::from("Custom block")),
         "event_whenflagclicked" => StartType::FlagClicked,
-        "control_start_as_clone" => StartType::StartAsClone(name),
+        "control_start_as_clone" => StartType::StartAsClone(format!("{}_clone",sprite_name)),
         "procedures_define" => {
             StartType::NoStart
         }

@@ -9,7 +9,6 @@
 extern crate rand;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use core::task::{RawWaker, RawWakerVTable, Waker};
-use std::collections::VecDeque;
 use genawaiter::rc::{gen, Co};
 use genawaiter::{yield_, GeneratorState};
 use glutin_window::GlutinWindow;
@@ -22,6 +21,7 @@ use piston::window::WindowSettings;
 use piston::Window;
 use piston::{MouseButton, MouseCursorEvent, PressEvent, ReleaseEvent, Size as WindowSize};
 use rand::Rng;
+use std::collections::VecDeque;
 use std::fmt::Display;
 use std::fs;
 use std::io;
@@ -50,7 +50,9 @@ const SCRATCH_HALF_HEIGHT: Value = Value::Num(180.0);
 const LIST_ITEM_LIMIT: Value = Value::Num(20000.0); // TODO check this
 
 mod blocks {
-    use super::{toNumber, Stamp, LIST_ITEM_LIMIT, SCRATCH_HALF_HEIGHT, SCRATCH_HALF_WIDTH, StartType};
+    use super::{
+        toNumber, Stamp, StartType, LIST_ITEM_LIMIT, SCRATCH_HALF_HEIGHT, SCRATCH_HALF_WIDTH,
+    };
     use super::{Keyboard, Sprite, Stage, Value, Yield};
     use chrono::TimeZone;
     use core::f32::consts::PI;
@@ -753,11 +755,16 @@ mod blocks {
         let mut clone = clone_target.lock().unwrap().clone();
         // TODO make new clone go behind old sprite
 
-        stage.threads_to_start.push_back(StartType::StartAsClone(clone.name.clone()));
-        
+        stage
+            .threads_to_start
+            .push_back(StartType::StartAsClone(format!(
+                "{}_clone",
+                clone.name.clone()
+            )));
+
         clone.name = clone.name + "_clone";
         stage.add_sprite(Rc::new(Mutex::new(clone)));
-        
+        println!("current sprites in stage: {:?}", stage.sprites);
     }
 
     pub fn delete_this_clone(stage: Rc<Mutex<Stage>>, sprite: Rc<Mutex<Sprite>>) {
@@ -855,7 +862,7 @@ mod blocks {
     }
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum RotationStyle {
     AllAround,
     LeftRight,
@@ -1336,6 +1343,7 @@ impl SpriteBuilder {
     }
 }
 
+#[derive(Debug)]
 pub struct Sprite {
     /// Whether the sprite is visible.  Defaults to true.
     visible: bool,
@@ -1442,6 +1450,18 @@ pub struct Costume {
     image: Image,
     path: PathBuf,
     scale: f32,
+}
+
+impl std::fmt::Debug for Costume {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Costume")
+            .field("name", &self.name)
+            .field("rotation_center_x", &self.rotation_center_x)
+            .field("rotation_center_y", &self.rotation_center_y)
+            .field("path", &self.path)
+            .field("scale", &self.scale)
+            .finish()
+    }
 }
 
 impl Costume {
@@ -1599,6 +1619,16 @@ struct Thread {
     start: StartType,
 }
 
+impl std::fmt::Debug for Thread {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Thread")
+            .field("complete", &self.complete)
+            .field("running", &self.running)
+            .field("start", &self.start)
+            .finish()
+    }
+}
+
 impl Thread {
     /// Create a new thread from a future.
     fn new(
@@ -1629,7 +1659,7 @@ pub struct Program {
 
 impl Program {
     /// Run 1 tick
-    fn tick(&mut self /*, stage: Rc<Mutex<Stage>>*/) {
+    fn tick(&mut self, stage: Rc<Mutex<Stage>>) {
         // for (i, thread) in &mut self.threads.iter_mut().enumerate() {
         //     let returned = match thread.obj_index {
         //         Some(obj_index_unwrapped) => thread.function.resume_with(Target::new(
@@ -1678,6 +1708,8 @@ impl Program {
             }
         }
         self.threads.retain(|x| !x.complete);
+
+        self.start_threads(stage);
     }
 
     fn new() -> Self {
@@ -1697,13 +1729,16 @@ impl Program {
         }
     }
 
-    fn start_threads(&mut self,stage:Rc<Mutex<Stage>>){
+    fn start_threads(&mut self, stage: Rc<Mutex<Stage>>) {
         let mut stage = stage.lock().unwrap();
 
-        for i in stage.threads_to_start.drain(0..){
-            for thread in &mut self.threads{
+        for i in stage.threads_to_start.drain(0..) {
+            println!("Starting thread with starttype {i}");
+
+            for thread in &mut self.threads {
                 if thread.start == i {
-                    
+                    thread.running = true;
+                    println!("Starting thread {:?}", thread);
                 }
             }
         }
@@ -2008,7 +2043,8 @@ impl Display for StartType {
                 StartType::BackdropSwitches => "StartType::BackdropSwitches".to_string(),
                 StartType::LoudnessGreater => "StartType::LoudnessGreater".to_string(),
                 StartType::ReceiveMessage => "StartType::ReceiveMessage".to_string(),
-                StartType::StartAsClone(sprite) => format!("StartType::StartAsClone({sprite})"),
+                StartType::StartAsClone(sprite) =>
+                    format!("StartType::StartAsClone(String::from(\"{sprite}\"))"),
                 StartType::CustomBlock => "StartType::CustomBlock".to_string(),
                 StartType::NoStart => "StartType::NoStart".to_string(),
             }
