@@ -94,9 +94,22 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
         "control_repeat_until",
         "while !<Value as Into<bool>>::into(CONDITION){SUBSTACK\nYield::Start.await;}",
     );
-    blocks.insert("control_create_clone_of","create_clone(stage.clone(),sprite.clone().unwrap(),CLONE_OPTION);");
-    blocks.insert("control_create_clone_of_menu","Value::from(CLONE_OPTION)");
-    blocks.insert("control_start_as_clone","");
+    blocks.insert(
+        "control_create_clone_of",
+        "{
+            let index = stage.lock().unwrap().sprites.len();
+            let sprite_name = create_clone(stage.clone(),sprite.clone().unwrap(),CLONE_OPTION);
+            let mut new_threads = clone_sprite(sprite_name.clone(),stage.lock().unwrap().sprites[index].clone(),stage.clone());
+            for thread in &mut new_threads{
+                if thread.start == StartType::StartAsClone(format!(\"{}_clone\",sprite_name.clone())){
+                    thread.running=true;
+                }
+            }
+            stage.lock().unwrap().add_threads(new_threads.into_iter());
+}",
+    );
+    blocks.insert("control_create_clone_of_menu", "Value::from(CLONE_OPTION)");
+    blocks.insert("control_start_as_clone", "");
 
     // blocks.insert("looks_say", "object.say(String::from(\"MESSAGE\"));");
     blocks.insert("looks_say", "say(MESSAGE);");
@@ -249,10 +262,22 @@ fn main() -> Result<(),Box<dyn Error>>{
 
     let mut targets: Vec<String> = Vec::new();
 
-    for (i,target) in project["targets"].members().enumerate() {
-        println!("[{}/{}] Compiling code for {}...",i+1,project["targets"].len(),target["name"]);
+    let mut target_clone_fns = Vec::new();
+
+    for (i, target) in project["targets"].members().enumerate() {
+        println!(
+            "[{}/{}] Compiling code for {}...",
+            i + 1,
+            project["targets"].len(),
+            target["name"]
+        );
         targets.push(generate_target(target, &block_reference)?);
         get_target_assets(target, &output)?;
+
+        target_clone_fns.push(format!(
+            "\"{name}\" => clone_{name}(target.clone(),stage.clone()),",
+            name = target["name"]
+        ));
     }
 
     let output = format!(
@@ -284,6 +309,14 @@ fn main() -> Result<(),Box<dyn Error>>{
             
             //program.add_threads(Sprite1.blocks);
             //program.add_all_threads();
+
+
+            fn clone_sprite(sprite: String, target:Rc<Mutex<Sprite>>, stage:Rc<Mutex<Stage>>) -> Vec<Thread>{{
+                match &*sprite{{
+                    {clone_content}
+                    _ => panic!(\"Should always have sprite to clone\")
+                }}
+            }}
 
 
             let mut events = Events::new(EventSettings::new());
@@ -321,6 +354,7 @@ fn main() -> Result<(),Box<dyn Error>>{
         ",
         lib = lib,
         targets = targets.join("\n"),
+        clone_content = target_clone_fns.join("\n"),
         // sprite1 = generate_target(&project["targets"][1], &block_reference)
     );
 
@@ -731,47 +765,62 @@ fn create_all_hats(
     for block in blocks.entries() {
         let cblock = handle_custom_block(block, blocks, block_reference);
 
-        if let Some((procode,func)) = cblock{
-            custom_blocks.insert(procode,func);
+        if let Some((procode, func)) = cblock {
+            custom_blocks.insert(procode, func);
         };
     }
 
     let custom_block_reference = custom_blocks.clone();
     // Expand all custom blocks in the definitions of the custom blocks
-    for definition in custom_blocks.values_mut(){
+    for definition in custom_blocks.values_mut() {
         expand_custom_blocks(definition, &custom_block_reference);
     }
 
-    let name_arg= if name == "Stage" {
+    let name_arg = if name == "Stage" {
         "None".to_string()
     } else {
         format!("Some({}.clone())", name)
     };
 
+    let mut stacks = Vec::new();
+
     for block in blocks.entries() {
-        let hat = create_hat(block, blocks, block_reference,name.clone());
+        let hat = create_hat(block, blocks, block_reference, name.clone());
         match hat {
             Ok((function, start_type, function_name, arguments, custom_block)) => {
+                stacks.push(format!(
+                    "v.push(Thread::new(stack_{}(Some(sprite.clone()),stage.clone()),{start_type}));",
+                    function_name
+                ));
                 match custom_block{
                     false => contents.push_str(format!(
                     // "program.add_thread(Thread{{function:{},obj_index:Some(program.objects.len()),complete:false}});\n",
                     "async fn stack_{function_name}(sprite: Option<Rc<Mutex<Sprite>>>, stage: Rc<Mutex<Stage>> {arguments}){{{function}}}
-program.add_thread(Thread::new(stack_{function_name}({sprite_name},Stage.clone())/*,Some(program.objects.len())*/,{start_type}));\n",
-                    sprite_name = name_arg,
+program.add_thread(Thread::new(stack_{function_name}(Some(Stage.lock().unwrap().sprites[{name}_index].clone()),Stage.clone())/*,Some(program.objects.len())*/,{start_type}));\n",
+                    // sprite_name = name_arg,
                 ) .as_str()),
                     true => contents.push_str(format!("async fn stack_{function_name}(sprite:Option<Rc<Mutex<Sprite>>>,stage:Rc<Mutex<Stage>> {arguments}){{{function}}}").as_str())
                 }
             }
-            Err(x) => {
-                match &*x{
-                    "Not a top level block" => continue,
-                    "Block has a parent" => continue,
-                    "Not a hat block" => continue,
-                    _ => return Err(x)
-                }
-            }
+            Err(x) => match &*x {
+                "Not a top level block" => continue,
+                "Block has a parent" => continue,
+                "Not a hat block" => continue,
+                _ => return Err(x),
+            },
         }
     }
+
+    contents.push_str(&format!(
+        "
+
+        fn clone_{name}(sprite: Rc<Mutex<Sprite>>, stage:Rc<Mutex<Stage>>) -> Vec<Thread>{{
+            let mut v = Vec::new();
+            {threads}
+            v
+        }}",
+        threads = stacks.join("\n")
+    ));
 
     Ok(contents)
 }
@@ -938,7 +987,9 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
                 costumes:Vec::new(),
             }}));*/
 
-            let mut {name} = Rc::new(Mutex::new(
+
+            let {name}_index = Stage.lock().unwrap().sprites.len();
+            Stage.lock().unwrap().add_sprite(Rc::new(Mutex::new(
                 SpriteBuilder::new(\"{name}\".to_string())
                     .visible({visible})
                     .position({x}f32,{y}f32)
@@ -949,15 +1000,16 @@ fn generate_target(target: &JsonValue, block_reference: &HashMap<&str, &str>) ->
                     {variables}
                     {lists}
                     .build()
-            ));
+            )));
 
-            {function}
-            {{
-                let mut stage = Stage.lock().unwrap(); 
-                stage.add_sprite({name}.clone());
-            }}
+            // {{
+            //     let mut stage = Stage.lock().unwrap();
+            //     stage.add_sprite({name});
+            // }}
 
-            //sprites.push({name}.clone());",
+            //sprites.push({name}.clone());
+
+            {function}",
             name = target["name"],
             visible = target["visible"],
             x = target["x"],

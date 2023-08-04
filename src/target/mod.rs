@@ -735,7 +735,17 @@ mod blocks {
         }
     }
 
-    pub fn create_clone(stage: Rc<Mutex<Stage>>, sprite: Rc<Mutex<Sprite>>, to_clone: Value) {
+    /// Create a clone of a sprite
+    ///
+    /// Procedure:
+    /// - First, clone the sprite and add it to the list of sprites.
+    /// - Then, create new instances of all scripts, attached to the new sprite.
+    ///   This has to be done outside of this function
+    pub fn create_clone(
+        stage: Rc<Mutex<Stage>>,
+        sprite: Rc<Mutex<Sprite>>,
+        to_clone: Value,
+    ) -> String {
         let mut stage = stage.lock().unwrap();
 
         let to_clone = to_clone.to_string();
@@ -743,28 +753,19 @@ mod blocks {
         // define the reference to the sprite to be cloned
         let clone_target = match &*to_clone {
             "_myself_" => sprite,
-            x => {
-                let t = stage.get_sprite(x.to_string());
-                if t.is_none() {
-                    return;
-                }
-                t.unwrap()
-            }
+            x => stage.get_sprite(x.to_string()).unwrap(),
         };
 
         let mut clone = clone_target.lock().unwrap().clone();
         // TODO make new clone go behind old sprite
 
-        stage
-            .threads_to_start
-            .push_back(StartType::StartAsClone(format!(
-                "{}_clone",
-                clone.name.clone()
-            )));
+
+        let old_name = clone.name.clone();
 
         clone.name = clone.name + "_clone";
         stage.add_sprite(Rc::new(Mutex::new(clone)));
-        println!("current sprites in stage: {:?}", stage.sprites);
+
+        old_name
     }
 
     pub fn delete_this_clone(stage: Rc<Mutex<Stage>>, sprite: Rc<Mutex<Sprite>>) {
@@ -1660,6 +1661,8 @@ pub struct Program {
 impl Program {
     /// Run 1 tick
     fn tick(&mut self, stage: Rc<Mutex<Stage>>) {
+        self.add_threads_from_stage(stage);
+
         // for (i, thread) in &mut self.threads.iter_mut().enumerate() {
         //     let returned = match thread.obj_index {
         //         Some(obj_index_unwrapped) => thread.function.resume_with(Target::new(
@@ -1708,8 +1711,6 @@ impl Program {
             }
         }
         self.threads.retain(|x| !x.complete);
-
-        self.start_threads(stage);
     }
 
     fn new() -> Self {
@@ -1729,23 +1730,12 @@ impl Program {
         }
     }
 
-    fn start_threads(&mut self, stage: Rc<Mutex<Stage>>) {
+    fn add_threads_from_stage(&mut self, stage: Rc<Mutex<Stage>>) {
         let mut stage = stage.lock().unwrap();
 
-        for i in stage.threads_to_start.drain(0..) {
-            println!("Starting thread with starttype {i}");
-
-            for thread in &mut self.threads {
-                if thread.start == i {
-                    thread.running = true;
-                    println!("Starting thread {:?}", thread);
-                }
-            }
+        for thread in stage.threads_to_add.drain(0..) {
+            self.add_thread(thread);
         }
-
-        // while stage.threads_to_start.len() > 0{
-        //     let thread = stage.threads_to_start.pop_front().expect("Element exists");
-        // }
     }
 
     /// Renders a red square.
@@ -1802,12 +1792,12 @@ impl Program {
         // })
     }
 
-    /// Add threads from a sprite to the program.
-    /// This _moves_ the threads out of the sprite.
-    fn add_threads(&mut self, mut threads: Vec<Thread>) {
-        // self.threads.append(&mut sprite.blocks);
-        self.threads.append(&mut threads)
-    }
+    // /// Add threads from a sprite to the program.
+    // /// This _moves_ the threads out of the sprite.
+    // fn add_threads(&mut self, mut threads: Vec<Thread>) {
+    //     // self.threads.append(&mut sprite.blocks);
+    //     self.threads.append(&mut threads)
+    // }
 
     /// Get a sprite by a name, or return null
     fn get_sprite(&self, name: String) -> Option<Rc<Mutex<Sprite>>> {
@@ -1836,6 +1826,12 @@ impl Program {
     /// Add a thread.
     fn add_thread(&mut self, thread: Thread) {
         self.threads.push(thread);
+    }
+
+    fn add_threads<T: Iterator<Item = Thread>>(&mut self, threads: T) {
+        for thread in threads {
+            self.add_thread(thread);
+        }
     }
 }
 
@@ -1912,7 +1908,7 @@ impl StageBuilder {
             mouse: Mouse::new(),
             stamps: Vec::new(),
             answer: Value::from(String::new()),
-            threads_to_start: VecDeque::new(),
+            threads_to_add: VecDeque::new(),
         }
     }
     pub fn tempo(mut self, tempo: i32) -> Self {
@@ -1976,7 +1972,7 @@ pub struct Stage {
     /// The current value of answer.
     answer: Value,
 
-    threads_to_start: VecDeque<StartType>,
+    threads_to_add: VecDeque<Thread>,
 }
 
 impl Stage {
@@ -2008,12 +2004,18 @@ impl Stage {
     /// Get a sprite by a name, or return null
     fn get_sprite(&self, name: String) -> Option<Rc<Mutex<Sprite>>> {
         for sprite in self.sprites.clone() {
-            let locked_sprite = sprite.lock().unwrap();
-            if locked_sprite.name == name {
-                return Some(sprite.clone());
+            // let locked_sprite = sprite.lock().unwrap();
+            if sprite.lock().unwrap().name == name {
+                return Some(sprite);
             }
         }
         None
+    }
+
+    fn add_threads<T: Iterator<Item = Thread>>(&mut self, threads: T) {
+        for thread in threads {
+            self.threads_to_add.push_back(thread);
+        }
     }
 }
 
