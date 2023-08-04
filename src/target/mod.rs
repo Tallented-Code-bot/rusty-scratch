@@ -111,14 +111,14 @@ mod blocks {
         }
     }
 
-    pub fn turn_right(sprite: Rc<Mutex<Sprite>>, degrees: f32) {
+    pub fn turn_right(sprite: Rc<Mutex<Sprite>>, degrees: Value) {
         let mut sprite = sprite.lock().unwrap();
-        sprite.direction += degrees;
+        sprite.direction += toNumber(&degrees);
     }
 
-    pub fn turn_left(sprite: Rc<Mutex<Sprite>>, degrees: f32) {
+    pub fn turn_left(sprite: Rc<Mutex<Sprite>>, degrees: Value) {
         let mut sprite = sprite.lock().unwrap();
-        sprite.direction -= degrees;
+        sprite.direction -= toNumber(&degrees);
     }
 
     pub fn point_in_direction(sprite: Rc<Mutex<Sprite>>, degrees: f32) {
