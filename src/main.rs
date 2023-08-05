@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
 use std::io;
-use std::io::Read;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::{Command, Output};
@@ -393,31 +392,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     //     &block_reference,
     // )
     Ok(())
-}
-
-/// Get the `project.json` file from a scratch `sb3` file.
-fn get_project(filename: String) -> Result<JsonValue, Box<dyn Error>> {
-    let file = std::path::Path::new(&filename);
-    let zipfile = std::fs::File::open(file)?;
-
-    let mut archive = zip::ZipArchive::new(zipfile)?;
-
-    let mut file = match archive.by_name("project.json") {
-        Ok(file) => file,
-        Err(..) => {
-            // return Err(String::from("Could not find project.json"));
-            return Err(From::from(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Could not find project.json",
-            )));
-        }
-    };
-
-    let mut contents = String::new();
-    file.read_to_string(&mut contents)?;
-
-    let project = json::parse(&contents as &str)?;
-    Ok(project)
 }
 
 /// Get an online scratch project.
@@ -924,22 +898,6 @@ fn get_lists(target: &JsonValue) -> Result<String, &str> {
     Ok(to_return)
 }
 
-/// Writes the output rust file.
-fn write_to_file(
-    block: (&str, &JsonValue),
-    blocks: &JsonValue,
-    block_reference: &HashMap<&str, &str>,
-) {
-    let filename = "output.rs";
-
-    // Get the library file to include
-    let lib = include_str!("../target/target.rs");
-
-    let function = create_hat(block, blocks, block_reference, "test_sprite".to_string()).unwrap();
-
-    fs::write(filename, format!("{}\n\n\n{}", lib, function.0)).expect("Could not write file.");
-}
-
 /// Generate a new target(sprite or stage) from json.
 fn generate_target(
     target: &JsonValue,
@@ -952,7 +910,7 @@ fn generate_target(
             block_reference,
             target["name"].to_string(),
         )?;
-        return Ok(format!(
+        Ok(format!(
             "/*let mut {name}=Rc::new(Mutex::new(Stage{{
                 tempo:{tempo},
                 video_state:{videoState},
@@ -991,7 +949,7 @@ fn generate_target(
             variables = get_variables(target).expect("There are no cloud variables"),
             lists = get_lists(target).unwrap(),
             costume = target_costumes(target),
-        ));
+        ))
     } else {
         /* let function = create_hat(
             (
@@ -1008,7 +966,7 @@ fn generate_target(
             target["name"].to_string(),
         )?;
 
-        return Ok(format!(
+        Ok(format!(
             "/*let mut {name}=Rc::new(Mutex::new(Sprite{{
                 visible:{visible},
                 x:{x}f32,
@@ -1059,7 +1017,7 @@ fn generate_target(
                 .unwrap()
                 .to_str(),
             costumes = target_costumes(target),
-        ));
+        ))
     }
 }
 
@@ -1188,37 +1146,6 @@ fn target_costumes(target: &JsonValue) -> String {
     }
 
     to_return
-}
-
-/// Convert all the svg assets in a target to pngs.
-fn convert_svg_png(target: &JsonValue) {
-    use opengl_graphics::{CreateTexture, Format, Texture, TextureSettings};
-    use resvg::tiny_skia::{Pixmap, Transform};
-    use resvg::usvg::{FitTo, Options, Tree};
-
-    let paths = fs::read_dir(format!("output/assets/{}", target["name"])).unwrap();
-
-    for path in paths {
-        let tree = Tree::from_str(
-            &fs::read_to_string(path.unwrap().path()).unwrap(),
-            &Options::default().to_ref(),
-        )
-        .unwrap();
-        let fit_to = FitTo::Original;
-        let transform = Transform::default();
-        let mut pixmap = Pixmap::new(1, 1).unwrap();
-        let pixmapmut = pixmap.as_mut();
-
-        resvg::render(&tree, fit_to, transform, pixmapmut);
-
-        let texture = Texture::create(
-            &mut (),
-            Format::Rgba8,
-            pixmap.data(),
-            [pixmap.width(), pixmap.height()],
-            &TextureSettings::new(),
-        );
-    }
 }
 
 /// Create the readme for a given scratch project

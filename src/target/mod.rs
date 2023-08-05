@@ -8,7 +8,6 @@
 
 extern crate rand;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
-use uuid::Uuid;
 use core::task::{RawWaker, RawWakerVTable, Waker};
 use genawaiter::rc::{gen, Co};
 use genawaiter::{yield_, GeneratorState};
@@ -39,6 +38,7 @@ use std::{
     sync::Mutex,
     time::{Duration, Instant},
 };
+use uuid::Uuid;
 
 use blocks::*;
 
@@ -604,8 +604,7 @@ mod blocks {
         let mut list = get_list(sprite.clone(), stage.clone(), (name.clone(), id.clone()));
         let index = position.to_list_index(list.len() + 1, false);
 
-        match index {
-            Ok(x) => {
+        if let Ok(x) = index {
                 if x > LIST_ITEM_LIMIT.into() {
                     return;
                 }
@@ -617,8 +616,6 @@ mod blocks {
                 }
 
                 replace_list(sprite, stage, list, (name, id));
-            }
-            Err(_) => {}
         }
     }
 
@@ -632,12 +629,9 @@ mod blocks {
         let mut list = get_list(sprite.clone(), stage.clone(), (name.clone(), id.clone()));
         let index = position.to_list_index(list.len(), false);
 
-        match index {
-            Ok(x) => {
-                list[x - 1] = item;
-                replace_list(sprite, stage, list, (name, id));
-            }
-            Err(_) => {}
+        if let Ok(x) = index {
+            list[x - 1] = item;
+            replace_list(sprite, stage, list, (name, id));
         }
     }
 
@@ -760,10 +754,9 @@ mod blocks {
         let mut clone = clone_target.lock().unwrap().clone();
         // TODO make new clone go behind old sprite
 
-
         let old_name = clone.name.clone();
 
-        clone.name = clone.name + "_clone";
+        clone.name += "_clone";
         clone.clone = true;
         stage.add_sprite(Rc::new(Mutex::new(clone)));
 
@@ -874,7 +867,7 @@ impl RotationStyle {
             _ => Err(()),
         }
     }
-    pub fn to_str(&self) -> &str {
+    pub fn to_str(self) -> &'static str {
         match self {
             RotationStyle::AllAround => "RotationStyle::AllAround",
             RotationStyle::LeftRight => "RotationStyle::LeftRight",
@@ -920,7 +913,7 @@ pub enum Value {
 }
 
 impl Value {
-    fn to_list_index(self, length: usize, acceptAll: bool) -> Result<usize, ()> {
+    fn to_list_index(&self, length: usize, acceptAll: bool) -> Result<usize, ()> {
         if let Value::String(x) = &self {
             if x == "all" {
                 if acceptAll {
@@ -942,7 +935,7 @@ impl Value {
                 return Err(());
             }
         }
-        let index: usize = self.into();
+        let index: usize = Number(self) as usize;
         if index < 1 || index > length {
             return Err(());
         }
@@ -980,12 +973,7 @@ impl PartialOrd for Value {
         if n1.is_nan() || n2.is_nan() {
             let s1 = String(self).to_lowercase();
             let s2 = String(other).to_lowercase();
-            if s1 < s2 {
-                return Some(O::Less);
-            } else if s1 > s2 {
-                return Some(O::Greater);
-            }
-            return Some(O::Equal);
+            return Some(s1.cmp(&s2));
         }
 
         if n1.is_infinite() && n2.is_infinite() {
@@ -1400,17 +1388,17 @@ impl Sprite {
 impl Clone for Sprite {
     fn clone(&self) -> Self {
         Self {
-            visible: self.visible.clone(),
-            x: self.x.clone(),
-            y: self.y.clone(),
-            size: self.size.clone(),
-            direction: self.direction.clone(),
-            draggable: self.draggable.clone(),
-            rotation_style: self.rotation_style.clone(),
+            visible: self.visible,
+            x: self.x,
+            y: self.y,
+            size: self.size,
+            direction: self.direction,
+            draggable: self.draggable,
+            rotation_style: self.rotation_style,
             name: self.name.clone(),
             variables: self.variables.clone(),
             lists: self.lists.clone(),
-            costume: self.costume.clone(),
+            costume: self.costume,
             costumes: self
                 .costumes
                 .iter()
@@ -1419,9 +1407,9 @@ impl Clone for Sprite {
                         .expect("Creating costume will not fail")
                 })
                 .collect(),
-            clone: self.clone.clone(),
+            clone: self.clone,
             uuid: Uuid::new_v4(),
-            to_be_deleted: self.to_be_deleted
+            to_be_deleted: self.to_be_deleted,
         }
     }
 }
@@ -1524,8 +1512,8 @@ fn dummy_raw_waker() -> RawWaker {
     // Create a vtable with the clone function, and no_op for wake and drop.
     let vtable = &RawWakerVTable::new(clone, no_op, no_op, no_op);
 
-    // Create a new RawWaker. The 0 is simply a null pointer that is unused.
-    RawWaker::new(0 as *const (), vtable)
+    // Create a new RawWaker.
+    RawWaker::new(std::ptr::null::<()>(), vtable)
 }
 
 /// Return an empty waker.
@@ -2027,13 +2015,7 @@ impl Stage {
 
     /// Get a sprite by a name, or return null
     fn get_sprite(&self, name: String) -> Option<Rc<Mutex<Sprite>>> {
-        for sprite in self.sprites.clone() {
-            // let locked_sprite = sprite.lock().unwrap();
-            if sprite.lock().unwrap().name == name {
-                return Some(sprite);
-            }
-        }
-        None
+        self.sprites.clone().into_iter().find(|sprite| sprite.lock().unwrap().name == name)
     }
 
     fn add_threads<T: Iterator<Item = Thread>>(&mut self, threads: T) {
