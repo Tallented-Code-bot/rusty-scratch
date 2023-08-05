@@ -8,6 +8,7 @@
 
 extern crate rand;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use uuid::Uuid;
 use core::task::{RawWaker, RawWakerVTable, Waker};
 use genawaiter::rc::{gen, Co};
 use genawaiter::{yield_, GeneratorState};
@@ -21,6 +22,7 @@ use piston::window::WindowSettings;
 use piston::Window;
 use piston::{MouseButton, MouseCursorEvent, PressEvent, ReleaseEvent, Size as WindowSize};
 use rand::Rng;
+use std::collections::VecDeque;
 use std::fmt::Display;
 use std::fs;
 use std::io;
@@ -49,8 +51,10 @@ const SCRATCH_HALF_HEIGHT: Value = Value::Num(180.0);
 const LIST_ITEM_LIMIT: Value = Value::Num(20000.0); // TODO check this
 
 mod blocks {
-    use super::{toNumber, Stamp, LIST_ITEM_LIMIT, SCRATCH_HALF_HEIGHT, SCRATCH_HALF_WIDTH};
-    use super::{Keyboard, Sprite, Stage, Target, Value, Yield};
+    use super::{
+        toNumber, Stamp, StartType, LIST_ITEM_LIMIT, SCRATCH_HALF_HEIGHT, SCRATCH_HALF_WIDTH,
+    };
+    use super::{Keyboard, Sprite, Stage, Value, Yield};
     use chrono::TimeZone;
     use core::f32::consts::PI;
     use rand::Rng;
@@ -182,7 +186,7 @@ mod blocks {
                 let current_costume = stage.costume;
 
                 let index = stage.costumes.iter().position(|c| c.name == name);
-                if let Some(i) = index{
+                if let Some(i) = index {
                     stage.set_costume(i as f32);
                 } else if name == "next backdrop" {
                     stage.set_costume(current_costume as f32 + 1.0);
@@ -576,9 +580,9 @@ mod blocks {
 
         // TODO handle deleting all of the list. (This is not supported yet in the .to_list_index() function).
 
-        if let Ok(x) = index{
+        if let Ok(x) = index {
             list.remove(x - 1);
-            replace_list(sprite ,stage ,list, (name, id));
+            replace_list(sprite, stage, list, (name, id));
         }
     }
 
@@ -637,8 +641,6 @@ mod blocks {
         }
     }
 
-    
-
     /// Set the costume.
     ///
     /// DEPRECATED
@@ -646,14 +648,6 @@ mod blocks {
         match object {
             Some(sprite) => sprite.costume = costume,
             None => *globalCostume = costume,
-        }
-    }
-
-    /// Set the costume of a target.
-    pub fn set_costume_better(object: &mut Target, costume: usize) {
-        match &mut object.sprite {
-            Some(x) => x.costume = costume,
-            None => object.stage.costume = costume,
         }
     }
 
@@ -742,6 +736,51 @@ mod blocks {
         }
     }
 
+    /// Create a clone of a sprite
+    ///
+    /// Procedure:
+    /// - First, clone the sprite and add it to the list of sprites.
+    /// - Then, create new instances of all scripts, attached to the new sprite.
+    ///   This has to be done outside of this function
+    pub fn create_clone(
+        stage: Rc<Mutex<Stage>>,
+        sprite: Rc<Mutex<Sprite>>,
+        to_clone: Value,
+    ) -> String {
+        let mut stage = stage.lock().unwrap();
+
+        let to_clone = to_clone.to_string();
+
+        // define the reference to the sprite to be cloned
+        let clone_target = match &*to_clone {
+            "_myself_" => sprite,
+            x => stage.get_sprite(x.to_string()).unwrap(),
+        };
+
+        let mut clone = clone_target.lock().unwrap().clone();
+        // TODO make new clone go behind old sprite
+
+
+        let old_name = clone.name.clone();
+
+        clone.name = clone.name + "_clone";
+        clone.clone = true;
+        stage.add_sprite(Rc::new(Mutex::new(clone)));
+
+        old_name
+    }
+
+    pub fn delete_this_clone(stage: Rc<Mutex<Stage>>, sprite: Rc<Mutex<Sprite>>) {
+        let mut stage = stage.lock().unwrap();
+        let mut sprite = sprite.lock().unwrap();
+
+        if !sprite.clone {
+            return;
+        }
+
+        sprite.to_be_deleted = true;
+    }
+
     pub fn generate_random(from: Value, to: Value) -> Value {
         let from: u32 = from.into();
         let to: u32 = to.into();
@@ -761,8 +800,8 @@ mod blocks {
         let stdin = io::stdin();
         stdin.read_line(&mut buffer).expect("Input should not fail");
 
-        buffer = buffer.replace('\r',"");
-        buffer = buffer.replace('\n',"");
+        buffer = buffer.replace('\r', "");
+        buffer = buffer.replace('\n', "");
 
         let mut stage = stage.lock().unwrap();
         stage.set_answer(Value::from(buffer));
@@ -819,7 +858,7 @@ mod blocks {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum RotationStyle {
     AllAround,
     LeftRight,
@@ -1094,7 +1133,7 @@ impl From<bool> for Value {
 }
 
 impl From<Value> for String {
-    fn from(val:Value) -> String {
+    fn from(val: Value) -> String {
         match val {
             Value::Num(x) => format!("{}", x),
             Value::String(x) => x,
@@ -1251,6 +1290,9 @@ impl SpriteBuilder {
             variables: self.variables,
             costume: self.costume,
             costumes: self.costumes,
+            clone: false, // we never build a clone
+            uuid: Uuid::new_v4(),
+            to_be_deleted: false,
         }
     }
 
@@ -1299,6 +1341,7 @@ impl SpriteBuilder {
     }
 }
 
+#[derive(Debug)]
 pub struct Sprite {
     /// Whether the sprite is visible.  Defaults to true.
     visible: bool,
@@ -1329,6 +1372,14 @@ pub struct Sprite {
     /// A list of paths for costumes. Each item is an index to the program
     /// costume list.
     costumes: Vec<Costume>,
+
+    /// Whether or not this sprite is a clone.
+    ///
+    /// This influences whether clone blocks can run.
+    clone: bool,
+
+    uuid: Uuid,
+    to_be_deleted: bool,
 }
 
 impl Sprite {
@@ -1346,6 +1397,53 @@ impl Sprite {
     }
 }
 
+impl Clone for Sprite {
+    fn clone(&self) -> Self {
+        Self {
+            visible: self.visible.clone(),
+            x: self.x.clone(),
+            y: self.y.clone(),
+            size: self.size.clone(),
+            direction: self.direction.clone(),
+            draggable: self.draggable.clone(),
+            rotation_style: self.rotation_style.clone(),
+            name: self.name.clone(),
+            variables: self.variables.clone(),
+            lists: self.lists.clone(),
+            costume: self.costume.clone(),
+            costumes: self
+                .costumes
+                .iter()
+                .map(|c| {
+                    Costume::new(c.name.clone(), c.path.clone(), c.scale)
+                        .expect("Creating costume will not fail")
+                })
+                .collect(),
+            clone: self.clone.clone(),
+            uuid: Uuid::new_v4(),
+            to_be_deleted: self.to_be_deleted
+        }
+    }
+}
+
+impl PartialEq for Sprite {
+    fn eq(&self, other: &Self) -> bool {
+        self.visible == other.visible
+            && self.x == other.x
+            && self.y == other.y
+            && self.size == other.size
+            && self.direction == other.direction
+            && self.draggable == other.draggable
+            && self.rotation_style == other.rotation_style
+            && self.name == other.name
+            && self.variables == other.variables
+            && self.lists == other.lists
+            && self.costume == other.costume
+            // && self.costumes == other.costumes
+            && self.clone == other.clone
+    }
+}
+
 /// A costume or backdrop
 pub struct Costume {
     name: String,
@@ -1353,11 +1451,25 @@ pub struct Costume {
     rotation_center_y: u32,
     texture: Texture,
     image: Image,
+    path: PathBuf,
+    scale: f32,
+}
+
+impl std::fmt::Debug for Costume {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Costume")
+            .field("name", &self.name)
+            .field("rotation_center_x", &self.rotation_center_x)
+            .field("rotation_center_y", &self.rotation_center_y)
+            .field("path", &self.path)
+            .field("scale", &self.scale)
+            .finish()
+    }
 }
 
 impl Costume {
     fn new(name: String, path: PathBuf, scale: f32) -> Result<Self, &'static str> {
-        let texture = get_texture_from_path(path, scale)?;
+        let texture = get_texture_from_path(path.clone(), scale)?;
         //let name = path.file_stem().unwrap().to_str().unwrap().to_string();
 
         Ok(Self {
@@ -1366,6 +1478,8 @@ impl Costume {
             rotation_center_y: 0,
             texture,
             image: Image::new(),
+            path,
+            scale,
         })
     }
 
@@ -1419,7 +1533,7 @@ fn dummy_waker() -> Waker {
     unsafe { Waker::from_raw(dummy_raw_waker()) }
 }
 
-async fn yield_fn(){}
+async fn yield_fn() {}
 
 /// This is a basic Future for other functions to yield. It returns Pending the
 /// first time it is polled and Ready the second time.
@@ -1506,6 +1620,18 @@ struct Thread {
     running: bool,
     /// When the thread should start
     start: StartType,
+
+    sprite_uuid: Uuid,
+}
+
+impl std::fmt::Debug for Thread {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Thread")
+            .field("complete", &self.complete)
+            .field("running", &self.running)
+            .field("start", &self.start)
+            .finish()
+    }
 }
 
 impl Thread {
@@ -1513,12 +1639,14 @@ impl Thread {
     fn new(
         future: impl Future<Output = ()> + 'static, /*, obj_index: Option<usize>*/
         start: StartType,
+        uuid: Uuid
     ) -> Thread {
         Thread {
             function: Box::pin(future),
             complete: false,
             running: false,
             start, // obj_index,
+            sprite_uuid: uuid,
         }
     }
 
@@ -1529,7 +1657,7 @@ impl Thread {
 
 /// The main project class.  This is in charge of running threads and
 /// redrawing the screen.
-struct Program {
+pub struct Program {
     threads: Vec<Thread>,
     //objects: Vec<Rc<Mutex<Sprite>>>,
     gl: GlGraphics,
@@ -1538,7 +1666,9 @@ struct Program {
 
 impl Program {
     /// Run 1 tick
-    fn tick(&mut self /*, stage: Rc<Mutex<Stage>>*/) {
+    fn tick(&mut self, stage: Rc<Mutex<Stage>>) {
+        self.add_threads_from_stage(stage.clone());
+
         // for (i, thread) in &mut self.threads.iter_mut().enumerate() {
         //     let returned = match thread.obj_index {
         //         Some(obj_index_unwrapped) => thread.function.resume_with(Target::new(
@@ -1587,6 +1717,7 @@ impl Program {
             }
         }
         self.threads.retain(|x| !x.complete);
+        self.delete_sprites(stage);
     }
 
     fn new() -> Self {
@@ -1605,6 +1736,33 @@ impl Program {
             }
         }
     }
+
+    fn add_threads_from_stage(&mut self, stage: Rc<Mutex<Stage>>) {
+        let mut stage = stage.lock().unwrap();
+
+        for thread in stage.threads_to_add.drain(0..) {
+            self.add_thread(thread);
+        }
+    }
+
+    /// Check all sprites and see if they need to be deleted; if they do, delete
+    /// them.
+    fn delete_sprites(&mut self,stage: Rc<Mutex<Stage>>){
+        let mut stage = stage.lock().unwrap();
+
+        stage.sprites.retain(|sprite|{
+            let sprite = sprite.lock().unwrap();
+
+            if sprite.to_be_deleted{
+                self.threads.retain(|thread| thread.sprite_uuid != sprite.uuid)
+            }
+
+
+            !sprite.to_be_deleted
+        })
+
+    }
+
 
     /// Renders a red square.
     fn render(&mut self, args: &RenderArgs, stage: Rc<Mutex<Stage>>, size: WindowSize) {
@@ -1660,12 +1818,12 @@ impl Program {
         // })
     }
 
-    /// Add threads from a sprite to the program.
-    /// This _moves_ the threads out of the sprite.
-    fn add_threads(&mut self, mut threads: Vec<Thread>) {
-        // self.threads.append(&mut sprite.blocks);
-        self.threads.append(&mut threads)
-    }
+    // /// Add threads from a sprite to the program.
+    // /// This _moves_ the threads out of the sprite.
+    // fn add_threads(&mut self, mut threads: Vec<Thread>) {
+    //     // self.threads.append(&mut sprite.blocks);
+    //     self.threads.append(&mut threads)
+    // }
 
     /// Get a sprite by a name, or return null
     fn get_sprite(&self, name: String) -> Option<Rc<Mutex<Sprite>>> {
@@ -1694,6 +1852,12 @@ impl Program {
     /// Add a thread.
     fn add_thread(&mut self, thread: Thread) {
         self.threads.push(thread);
+    }
+
+    fn add_threads<T: Iterator<Item = Thread>>(&mut self, threads: T) {
+        for thread in threads {
+            self.add_thread(thread);
+        }
     }
 }
 
@@ -1770,6 +1934,7 @@ impl StageBuilder {
             mouse: Mouse::new(),
             stamps: Vec::new(),
             answer: Value::from(String::new()),
+            threads_to_add: VecDeque::new(),
         }
     }
     pub fn tempo(mut self, tempo: i32) -> Self {
@@ -1831,15 +1996,17 @@ pub struct Stage {
 
     stamps: Vec<Stamp>,
     /// The current value of answer.
-    answer:Value,
+    answer: Value,
+
+    threads_to_add: VecDeque<Thread>,
 }
 
 impl Stage {
-    fn set_answer(&mut self,v:Value){
+    fn set_answer(&mut self, v: Value) {
         self.answer = v;
     }
 
-    fn get_answer(&self)->Value{
+    fn get_answer(&self) -> Value {
         self.answer.clone()
     }
 
@@ -1863,49 +2030,23 @@ impl Stage {
     /// Get a sprite by a name, or return null
     fn get_sprite(&self, name: String) -> Option<Rc<Mutex<Sprite>>> {
         for sprite in self.sprites.clone() {
-            let locked_sprite = sprite.lock().unwrap();
-            if locked_sprite.name == name {
-                return Some(sprite.clone());
+            // let locked_sprite = sprite.lock().unwrap();
+            if sprite.lock().unwrap().name == name {
+                return Some(sprite);
             }
         }
         None
     }
-}
 
-/// This is a target.
-///
-/// A target is a combination of a sprite(or not) and the stage. If the sprite
-/// is absent(None), the target is assumed to be the stage.
-pub struct Target {
-    /// The stage.
-    ///
-    /// This is an owned variable, meaning it is a copy of the real stage. The
-    /// real stage should be set to this copy when the target is returned from a
-    /// thread.
-    stage: Stage,
-    sprite: Option<Sprite>,
-}
-
-impl Target {
-    /// Create a new sprite target.
-    fn new(sprite: Sprite, stage: Stage) -> Self {
-        Self {
-            sprite: Some(sprite),
-            stage,
-        }
-    }
-
-    /// Create a new stage target.
-    fn new_stage(stage: Stage) -> Self {
-        Self {
-            sprite: None,
-            stage,
+    fn add_threads<T: Iterator<Item = Thread>>(&mut self, threads: T) {
+        for thread in threads {
+            self.threads_to_add.push_back(thread);
         }
     }
 }
 
 /// The type of thread starter, such as flagClick.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StartType {
     FlagClicked,
     KeyPressed,
@@ -1913,7 +2054,7 @@ pub enum StartType {
     BackdropSwitches,
     LoudnessGreater,
     ReceiveMessage,
-    StartAsClone,
+    StartAsClone(String),
     CustomBlock,
     NoStart,
 }
@@ -1924,15 +2065,16 @@ impl Display for StartType {
             f,
             "{}",
             match self {
-                StartType::FlagClicked => "StartType::FlagClicked",
-                StartType::KeyPressed => "StartType::KeyPressed",
-                StartType::SpriteClicked => "StartType::SpriteClicked",
-                StartType::BackdropSwitches => "StartType::BackdropSwitches",
-                StartType::LoudnessGreater => "StartType::LoudnessGreater",
-                StartType::ReceiveMessage => "StartType::ReceiveMessage",
-                StartType::StartAsClone => "StartType::StartAsClone",
-                StartType::CustomBlock => "StartType::CustomBlock",
-                StartType::NoStart => "StartType::NoStart",
+                StartType::FlagClicked => "StartType::FlagClicked".to_string(),
+                StartType::KeyPressed => "StartType::KeyPressed".to_string(),
+                StartType::SpriteClicked => "StartType::SpriteClicked".to_string(),
+                StartType::BackdropSwitches => "StartType::BackdropSwitches".to_string(),
+                StartType::LoudnessGreater => "StartType::LoudnessGreater".to_string(),
+                StartType::ReceiveMessage => "StartType::ReceiveMessage".to_string(),
+                StartType::StartAsClone(sprite) =>
+                    format!("StartType::StartAsClone(String::from(\"{sprite}\"))"),
+                StartType::CustomBlock => "StartType::CustomBlock".to_string(),
+                StartType::NoStart => "StartType::NoStart".to_string(),
             }
         )
     }
@@ -1977,7 +2119,7 @@ impl Keyboard {
 
     fn key_arg_to_scratch_key(&self, arg: Value) -> String {
         if let Value::Num(x) = arg {
-            if (48.0..=90.0).contains(&x){
+            if (48.0..=90.0).contains(&x) {
                 return String::from_utf16(&[x as u16]).expect("Proper range.");
             }
             return match x as u16 {
