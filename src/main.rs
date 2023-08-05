@@ -800,7 +800,13 @@ fn create_all_hats(
     let name_arg = if name == "Stage" {
         "None".to_string()
     } else {
-        format!("Some({}.clone())", name)
+        format!("Some(stage.sprites[{}_index].clone())", name)
+    };
+
+    let uuid = if name == "Stage" {
+        "None".to_string()
+    } else {
+        format!("Some(stage.sprites[{}_index].lock().unwrap().uuid)", name)
     };
 
     let mut stacks = Vec::new();
@@ -810,7 +816,7 @@ fn create_all_hats(
         match hat {
             Ok((function, start_type, function_name, arguments, custom_block)) => {
                 stacks.push(format!(
-                    "v.push(Thread::new(stack_{}(Some(sprite.clone()),stage.clone()),{start_type},sprite.lock().unwrap().uuid));",
+                    "v.push(Thread::new(stack_{}(Some(sprite.clone()),stage.clone()),{start_type},Some(sprite.lock().unwrap().uuid)));",
                     function_name
                 ));
                 match custom_block{
@@ -820,7 +826,7 @@ fn create_all_hats(
                     {{
                         let stage = Stage.lock().unwrap();
                         program.add_thread(Thread::new(
-                            stack_{function_name}(Some(stage.sprites[{name}_index].clone()),Stage.clone()),{start_type}, stage.sprites[{name}_index].lock().unwrap().uuid
+                            stack_{function_name}({name_arg},Stage.clone()),{start_type}, {uuid}
                         ));\n
                     }}
 ",

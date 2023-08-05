@@ -1621,7 +1621,7 @@ struct Thread {
     /// When the thread should start
     start: StartType,
 
-    sprite_uuid: Uuid,
+    sprite_uuid: Option<Uuid>,
 }
 
 impl std::fmt::Debug for Thread {
@@ -1639,7 +1639,7 @@ impl Thread {
     fn new(
         future: impl Future<Output = ()> + 'static, /*, obj_index: Option<usize>*/
         start: StartType,
-        uuid: Uuid
+        uuid: Option<Uuid>,
     ) -> Thread {
         Thread {
             function: Box::pin(future),
@@ -1747,22 +1747,20 @@ impl Program {
 
     /// Check all sprites and see if they need to be deleted; if they do, delete
     /// them.
-    fn delete_sprites(&mut self,stage: Rc<Mutex<Stage>>){
+    fn delete_sprites(&mut self, stage: Rc<Mutex<Stage>>) {
         let mut stage = stage.lock().unwrap();
 
-        stage.sprites.retain(|sprite|{
+        stage.sprites.retain(|sprite| {
             let sprite = sprite.lock().unwrap();
 
-            if sprite.to_be_deleted{
-                self.threads.retain(|thread| thread.sprite_uuid != sprite.uuid)
+            if sprite.to_be_deleted {
+                self.threads
+                    .retain(|thread| thread.sprite_uuid != Some(sprite.uuid))
             }
-
 
             !sprite.to_be_deleted
         })
-
     }
-
 
     /// Renders a red square.
     fn render(&mut self, args: &RenderArgs, stage: Rc<Mutex<Stage>>, size: WindowSize) {
