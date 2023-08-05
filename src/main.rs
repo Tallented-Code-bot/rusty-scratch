@@ -128,6 +128,10 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
     );
     blocks.insert("control_create_clone_of_menu", "Value::from(CLONE_OPTION)");
     blocks.insert("control_start_as_clone", "");
+    blocks.insert(
+        "control_delete_this_clone",
+        "delete_this_clone(stage.clone(),sprite.clone().unwrap());",
+    );
 
     // blocks.insert("looks_say", "object.say(String::from(\"MESSAGE\"));");
     blocks.insert("looks_say", "say(MESSAGE);");

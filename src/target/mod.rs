@@ -764,6 +764,7 @@ mod blocks {
         let old_name = clone.name.clone();
 
         clone.name = clone.name + "_clone";
+        clone.clone = true;
         stage.add_sprite(Rc::new(Mutex::new(clone)));
 
         old_name
@@ -771,20 +772,13 @@ mod blocks {
 
     pub fn delete_this_clone(stage: Rc<Mutex<Stage>>, sprite: Rc<Mutex<Sprite>>) {
         let mut stage = stage.lock().unwrap();
-        let sprite = sprite.lock().unwrap();
+        let mut sprite = sprite.lock().unwrap();
 
         if !sprite.clone {
             return;
         }
 
-        let index = stage
-            .sprites
-            .iter()
-            .position(|x| *x.lock().unwrap() == *sprite);
-        if index.is_none() {
-            return;
-        }
-        stage.sprites.remove(index.unwrap());
+        sprite.to_be_deleted = true;
     }
 
     pub fn generate_random(from: Value, to: Value) -> Value {
@@ -1298,6 +1292,7 @@ impl SpriteBuilder {
             costumes: self.costumes,
             clone: false, // we never build a clone
             uuid: Uuid::new_v4(),
+            to_be_deleted: false,
         }
     }
 
@@ -1384,6 +1379,7 @@ pub struct Sprite {
     clone: bool,
 
     uuid: Uuid,
+    to_be_deleted: bool,
 }
 
 impl Sprite {
@@ -1425,6 +1421,7 @@ impl Clone for Sprite {
                 .collect(),
             clone: self.clone.clone(),
             uuid: Uuid::new_v4(),
+            to_be_deleted: self.to_be_deleted
         }
     }
 }
@@ -1670,7 +1667,7 @@ pub struct Program {
 impl Program {
     /// Run 1 tick
     fn tick(&mut self, stage: Rc<Mutex<Stage>>) {
-        self.add_threads_from_stage(stage);
+        self.add_threads_from_stage(stage.clone());
 
         // for (i, thread) in &mut self.threads.iter_mut().enumerate() {
         //     let returned = match thread.obj_index {
@@ -1720,6 +1717,7 @@ impl Program {
             }
         }
         self.threads.retain(|x| !x.complete);
+        self.delete_sprites(stage);
     }
 
     fn new() -> Self {
@@ -1746,6 +1744,25 @@ impl Program {
             self.add_thread(thread);
         }
     }
+
+    /// Check all sprites and see if they need to be deleted; if they do, delete
+    /// them.
+    fn delete_sprites(&mut self,stage: Rc<Mutex<Stage>>){
+        let mut stage = stage.lock().unwrap();
+
+        stage.sprites.retain(|sprite|{
+            let sprite = sprite.lock().unwrap();
+
+            if sprite.to_be_deleted{
+                self.threads.retain(|thread| thread.sprite_uuid != sprite.uuid)
+            }
+
+
+            !sprite.to_be_deleted
+        })
+
+    }
+
 
     /// Renders a red square.
     fn render(&mut self, args: &RenderArgs, stage: Rc<Mutex<Stage>>, size: WindowSize) {
