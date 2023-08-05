@@ -19,3 +19,4 @@ ureq = {version = "2.6.1",features = ["json"]}
 clap = {version="4.0.32", features=["derive"]}
 chrono = "0.4.23"
 indicatif = "0.17.3"
+uuid = {version = "1.4.1", features = ["v4","fast-rng"]}

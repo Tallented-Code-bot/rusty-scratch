@@ -8,6 +8,7 @@
 
 extern crate rand;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use uuid::Uuid;
 use core::task::{RawWaker, RawWakerVTable, Waker};
 use genawaiter::rc::{gen, Co};
 use genawaiter::{yield_, GeneratorState};
@@ -1296,6 +1297,7 @@ impl SpriteBuilder {
             costume: self.costume,
             costumes: self.costumes,
             clone: false, // we never build a clone
+            uuid: Uuid::new_v4(),
         }
     }
 
@@ -1380,6 +1382,8 @@ pub struct Sprite {
     ///
     /// This influences whether clone blocks can run.
     clone: bool,
+
+    uuid: Uuid,
 }
 
 impl Sprite {
@@ -1420,6 +1424,7 @@ impl Clone for Sprite {
                 })
                 .collect(),
             clone: self.clone.clone(),
+            uuid: Uuid::new_v4(),
         }
     }
 }
@@ -1618,6 +1623,8 @@ struct Thread {
     running: bool,
     /// When the thread should start
     start: StartType,
+
+    sprite_uuid: Uuid,
 }
 
 impl std::fmt::Debug for Thread {
@@ -1635,12 +1642,14 @@ impl Thread {
     fn new(
         future: impl Future<Output = ()> + 'static, /*, obj_index: Option<usize>*/
         start: StartType,
+        uuid: Uuid
     ) -> Thread {
         Thread {
             function: Box::pin(future),
             complete: false,
             running: false,
             start, // obj_index,
+            sprite_uuid: uuid,
         }
     }
 
