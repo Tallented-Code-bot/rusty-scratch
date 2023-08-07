@@ -150,6 +150,14 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
     blocks.insert("looks_setsizeto", "set_size(sprite.clone().unwrap(),SIZE);");
     blocks.insert("looks_show", "show(sprite.clone().unwrap());");
     blocks.insert("looks_hide", "hide(sprite.clone().unwrap());");
+    blocks.insert(
+        "looks_gotofrontback",
+        "go_to_front_or_back(sprite.clone().unwrap(),stage.clone(),FRONT_BACK);",
+    );
+    blocks.insert(
+        "looks_goforwardbackwardlayers",
+        "go_forward_backwards_layers(sprite.clone().unwrap(),stage.clone(),FORWARD_BACKWARD,NUM);",
+    );
     blocks.insert("event_whenflagclicked", "");
     // blocks.insert(
     //     "data_variable",
@@ -338,6 +346,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }}
             }}
 
+            {{Stage.lock().unwrap().sprites.sort_by(|a,b| a.lock().unwrap().layer.cmp(&b.lock().unwrap().layer));}}
 
             let mut events = Events::new(EventSettings::new());
             events.set_max_fps(30);
@@ -990,6 +999,7 @@ fn generate_target(
                     .direction({direction}f32)
                     .draggable({draggable})
                     .rotation_style({rotationStyle})
+                    .layer({layer})
                     {costumes}
                     {variables}
                     {lists}
@@ -1009,6 +1019,7 @@ fn generate_target(
             x = target["x"],
             y = target["y"],
             size = target["size"],
+            layer = target["layerOrder"],
             direction = target["direction"],
             variables = get_variables(target).expect("There should be no cloud variables"),
             lists = get_lists(target).unwrap(),

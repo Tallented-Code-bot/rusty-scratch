@@ -52,7 +52,8 @@ const LIST_ITEM_LIMIT: Value = Value::Num(20000.0); // TODO check this
 
 mod blocks {
     use super::{
-        toNumber, Stamp, StartType, LIST_ITEM_LIMIT, SCRATCH_HALF_HEIGHT, SCRATCH_HALF_WIDTH,
+        toNumber, Stamp, StartType, String, LIST_ITEM_LIMIT, SCRATCH_HALF_HEIGHT,
+        SCRATCH_HALF_WIDTH,
     };
     use super::{Keyboard, Sprite, Stage, Value, Yield};
     use chrono::TimeZone;
@@ -269,6 +270,157 @@ mod blocks {
     pub fn hide(sprite: Rc<Mutex<Sprite>>) {
         let mut sprite = sprite.lock().unwrap();
         sprite.visible = false;
+    }
+
+    /// Move the current sprite to the front or back layer
+    pub fn go_to_front_or_back(sprite: Rc<Mutex<Sprite>>, stage: Rc<Mutex<Stage>>, arg: Value) {
+        let mut stage = stage.lock().unwrap();
+
+        if String(&arg) == String::from("front") {
+            // go to the front
+
+            // get the current layer
+            let current_layer = { sprite.lock().unwrap().layer };
+
+            // find the largest layer
+            let largest_layer = {
+                stage
+                    .sprites
+                    .iter()
+                    .max_by_key(|sprite| sprite.lock().unwrap().layer)
+                    .unwrap()
+                    .lock()
+                    .unwrap()
+                    .layer
+            };
+
+            for sprite in stage
+                .sprites
+                .iter_mut()
+                .filter(|sprite| sprite.lock().unwrap().layer > current_layer)
+            {
+                sprite.lock().unwrap().layer -= 1;
+            }
+
+            sprite.lock().unwrap().layer = largest_layer;
+        } else {
+            // go to the back (smallest layer #)
+
+            let current_layer = { sprite.lock().unwrap().layer };
+
+            // find the smallest layer
+            let smallest_layer = {
+                stage
+                    .sprites
+                    .iter()
+                    .min_by_key(|sprite| sprite.lock().unwrap().layer)
+                    .unwrap()
+                    .lock()
+                    .unwrap()
+                    .layer
+            };
+
+            // Increment layer numbers for all sprites with layers less than the current layer.
+            for sprite in stage
+                .sprites
+                .iter_mut()
+                .filter(|sprite| sprite.lock().unwrap().layer < current_layer)
+            {
+                sprite.lock().unwrap().layer += 1;
+            }
+
+            // set the current layer to the smallest possible
+            sprite.lock().unwrap().layer = smallest_layer;
+        }
+        stage
+            .sprites
+            .sort_by(|a, b| a.lock().unwrap().layer.cmp(&b.lock().unwrap().layer));
+    }
+
+    pub fn go_forward_backwards_layers(
+        sprite: Rc<Mutex<Sprite>>,
+        stage: Rc<Mutex<Stage>>,
+        front_back: Value,
+        layers: Value,
+    ) {
+        if String(&front_back) == String::from("forward") {
+            go_forward_layers(sprite, stage, layers);
+        } else {
+            go_backward_layers(sprite, stage, layers);
+        }
+    }
+
+    pub fn go_forward_layers(sprite: Rc<Mutex<Sprite>>, stage: Rc<Mutex<Stage>>, layers: Value) {
+        let mut stage = stage.lock().unwrap();
+        let layers = toNumber(&layers) as u32;
+
+        // retreive the current layer
+        let current_layer = { sprite.lock().unwrap().layer };
+
+        // find the future layer
+        let mut future_layer = current_layer + layers;
+
+        // make sure the future layer is not greater than the current maximum layer
+        let max_layer = {
+            stage
+                .sprites
+                .iter()
+                .max_by_key(|sprite| sprite.lock().unwrap().layer)
+                .unwrap()
+                .lock()
+                .unwrap()
+                .layer
+        };
+        if future_layer > max_layer {
+            future_layer = max_layer
+        }
+
+        // decrease items between the source and destination items
+        for sprite in stage.sprites.iter_mut().filter(|sprite| {
+            let x = sprite.lock().unwrap().layer;
+            x > current_layer && x <= future_layer
+        }) {
+            sprite.lock().unwrap().layer -= 1;
+        }
+
+        // set the current layer to the destination layer
+        {
+            sprite.lock().unwrap().layer = future_layer;
+        }
+
+        // sort the list by layer
+        stage
+            .sprites
+            .sort_by(|a, b| a.lock().unwrap().layer.cmp(&b.lock().unwrap().layer))
+    }
+
+    pub fn go_backward_layers(sprite: Rc<Mutex<Sprite>>, stage: Rc<Mutex<Stage>>, layers: Value) {
+        let mut stage = stage.lock().unwrap();
+        let layers = toNumber(&layers) as u32;
+
+        // retreive the current layer
+        let current_layer = { sprite.lock().unwrap().layer };
+
+        // Set the future layer.  The lowest value is 0
+        let mut future_layer = current_layer.checked_sub(layers).or(Some(1)).unwrap();
+        if future_layer == 0 {
+            future_layer = 1;
+        }
+
+        for sprite in stage.sprites.iter_mut().filter(|sprite| {
+            let x = sprite.lock().unwrap().layer;
+            x < current_layer && x >= future_layer
+        }) {
+            sprite.lock().unwrap().layer += 1;
+        }
+
+        {
+            sprite.lock().unwrap().layer = future_layer;
+        }
+
+        stage
+            .sprites
+            .sort_by(|a, b| a.lock().unwrap().layer.cmp(&b.lock().unwrap().layer))
     }
 
     /// Get a variable from an id.
@@ -605,17 +757,17 @@ mod blocks {
         let index = position.to_list_index(list.len() + 1, false);
 
         if let Ok(x) = index {
-                if x > LIST_ITEM_LIMIT.into() {
-                    return;
-                }
+            if x > LIST_ITEM_LIMIT.into() {
+                return;
+            }
 
-                list.insert(x - 1, item);
+            list.insert(x - 1, item);
 
-                if list.len() > LIST_ITEM_LIMIT.into() {
-                    list.pop();
-                }
+            if list.len() > LIST_ITEM_LIMIT.into() {
+                list.pop();
+            }
 
-                replace_list(sprite, stage, list, (name, id));
+            replace_list(sprite, stage, list, (name, id));
         }
     }
 
@@ -1243,6 +1395,7 @@ pub struct SpriteBuilder {
     lists: HashMap<String, (String, Vec<Value>)>,
     costume: usize,
     costumes: Vec<Costume>,
+    layer: u32,
 }
 
 impl SpriteBuilder {
@@ -1261,6 +1414,7 @@ impl SpriteBuilder {
             lists: HashMap::new(),
             costume: 0,
             costumes: Vec::new(),
+            layer: 999,
         }
     }
 
@@ -1281,7 +1435,13 @@ impl SpriteBuilder {
             clone: false, // we never build a clone
             uuid: Uuid::new_v4(),
             to_be_deleted: false,
+            layer: self.layer,
         }
+    }
+
+    pub fn layer(mut self, layer: u32) -> Self {
+        self.layer = layer;
+        self
     }
 
     pub fn position(mut self, x: f32, y: f32) -> Self {
@@ -1368,6 +1528,9 @@ pub struct Sprite {
 
     uuid: Uuid,
     to_be_deleted: bool,
+    /// The current layer of the sprite. Sprites with higher layers are
+    /// displayed on top of sprites with lower layers.
+    layer: u32,
 }
 
 impl Sprite {
@@ -1410,6 +1573,7 @@ impl Clone for Sprite {
             clone: self.clone,
             uuid: Uuid::new_v4(),
             to_be_deleted: self.to_be_deleted,
+            layer: self.layer,
         }
     }
 }
@@ -2015,7 +2179,10 @@ impl Stage {
 
     /// Get a sprite by a name, or return null
     fn get_sprite(&self, name: String) -> Option<Rc<Mutex<Sprite>>> {
-        self.sprites.clone().into_iter().find(|sprite| sprite.lock().unwrap().name == name)
+        self.sprites
+            .clone()
+            .into_iter()
+            .find(|sprite| sprite.lock().unwrap().name == name)
     }
 
     fn add_threads<T: Iterator<Item = Thread>>(&mut self, threads: T) {
