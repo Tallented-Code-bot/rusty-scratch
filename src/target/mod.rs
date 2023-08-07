@@ -904,13 +904,24 @@ mod blocks {
         };
 
         let mut clone = clone_target.lock().unwrap().clone();
-        // TODO make new clone go behind old sprite
+
+        for s in stage
+            .sprites
+            .iter_mut()
+            .filter(|sprite| sprite.lock().unwrap().layer >= clone.layer)
+        {
+            s.lock().unwrap().layer += 1;
+        }
 
         let old_name = clone.name.clone();
 
         clone.name += "_clone";
         clone.clone = true;
         stage.add_sprite(Rc::new(Mutex::new(clone)));
+
+        stage
+            .sprites
+            .sort_by_key(|sprite| sprite.lock().unwrap().layer);
 
         old_name
     }
