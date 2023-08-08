@@ -867,26 +867,39 @@ fn convert_ident_name(name: &str) -> Result<String, String> {
     name.chars()
         .map(|c| {
             if is_id_continue(c) {
-                Ok(c)
+                Ok(c.to_string())
             } else {
                 // Convert some of the most common characters. These are
                 // arbitrary characters and do not mean anything.
-                Ok(match c {
-                    '+' => 'p',
-                    '-' => 'm',
-                    '/' => 'd',
-                    '*' => 's',
-                    '(' => 'l',
-                    ')' => 'r',
-                    '{' => 'q',
-                    '}' => 'w',
-                    '[' => 'e',
-                    ']' => 'r',
-                    ' ' => '_',
-                    '%' => 'x',
-                    ':' => 'c',
+                Ok(String::from(match c {
+                    '+' => "plus",
+                    '-' => "minus",
+                    '/' => "divided",
+                    '*' => "times",
+                    '(' => "lparen",
+                    ')' => "rparen",
+                    '{' => "lbrace",
+                    '}' => "rbrace",
+                    '[' => "lsquare",
+                    ']' => "rsquare",
+                    ' ' => "_",
+                    '%' => "percent",
+                    ':' => "colon",
+                    '!' => "exclaim",
+                    '@' => "at",
+                    '#' => "pound",
+                    '$' => "dollar",
+                    '^' => "caret",
+                    '&' => "ampersand",
+                    '=' => "equals",
+                    '<' => "lbracket",
+                    '>' => "rbracket",
+                    '?' => "question",
+                    '\\' => "backslash",
+                    '|' => "pipe",
+                    '`' => "tilde",
                     _ => return Err(format!("Disallowed character {}", c)),
-                })
+                }))
             }
         })
         .collect()
