@@ -142,7 +142,10 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
         "looks_backdrops",
         "switch_backdrop(stage.clone(),BACKDROP);",
     ); // legacy? not included in scratch 3 opcodes
-    blocks.insert("looks_nextcostume", "next_costume(sprite.clone());");
+    blocks.insert(
+        "looks_nextcostume",
+        "next_costume(sprite.clone().unwrap());",
+    );
     blocks.insert(
         "looks_switchcostumeto",
         "switch_costume(sprite.clone().unwrap(),COSTUME);",
