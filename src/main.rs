@@ -433,11 +433,7 @@ fn get_block(
     // println!("{}", block.1);
     let mut function;
     if opcode == "procedures_call" {
-        let mut cblock = data["mutation"]["proccode"].to_string();
-        cblock = cblock.replace(" %s", "_percent_s");
-        cblock = cblock.replace(" %b", "_percent_b");
-        cblock = cblock.replace(' ', "_");
-        cblock = cblock.to_lowercase();
+        let cblock = convert_ident_name(&data["mutation"]["proccode"].to_string())?;
 
         let mut arguments = "".to_string();
 
@@ -757,7 +753,13 @@ fn create_hat(
     };
 
     // TODO Remove this
-    Ok((function, start_type, name, arguments, custom_block))
+    Ok((
+        function,
+        start_type,
+        convert_ident_name(&name)?,
+        arguments,
+        custom_block,
+    ))
 }
 
 /// Returns all stacks of blocks.
@@ -881,6 +883,8 @@ fn convert_ident_name(name: &str) -> Result<String, String> {
                     '[' => 'e',
                     ']' => 'r',
                     ' ' => '_',
+                    '%' => 'x',
+                    ':' => 'c',
                     _ => return Err(format!("Disallowed character {}", c)),
                 })
             }
