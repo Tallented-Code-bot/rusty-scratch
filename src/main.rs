@@ -9,6 +9,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 use target::StartType;
+use unicode_id_start::is_id_continue;
 
 use clap::Parser;
 
@@ -307,7 +308,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         target_clone_fns.push(format!(
             "\"{name}\" => clone_{name}(target.clone(),stage.clone()),",
-            name = target["name"]
+            name = convert_ident_name(&target["name"].to_string())?
         ));
     }
 
@@ -786,13 +787,19 @@ fn create_all_hats(
     let name_arg = if name == "Stage" {
         "None".to_string()
     } else {
-        format!("Some(stage.sprites[{}_index].clone())", name)
+        format!(
+            "Some(stage.sprites[{}_index].clone())",
+            convert_ident_name(&name)?
+        )
     };
 
     let uuid = if name == "Stage" {
         "None".to_string()
     } else {
-        format!("Some(stage.sprites[{}_index].lock().unwrap().uuid)", name)
+        format!(
+            "Some(stage.sprites[{}_index].lock().unwrap().uuid)",
+            convert_ident_name(&name)?
+        )
     };
 
     let mut stacks = Vec::new();
@@ -851,6 +858,35 @@ fn expand_custom_blocks(function: &mut String, custom_blocks: &HashMap<String, S
     }
 }
 
+/// Check if a given name is valid for a rust identifier.
+///
+/// This will correct some more common cases, but not all of them.
+fn convert_ident_name(name: &str) -> Result<String, String> {
+    name.chars()
+        .map(|c| {
+            if is_id_continue(c) {
+                Ok(c)
+            } else {
+                // Convert some of the most common characters. These are
+                // arbitrary characters and do not mean anything.
+                Ok(match c {
+                    '+' => 'p',
+                    '-' => 'm',
+                    '/' => 'd',
+                    '*' => 's',
+                    '(' => 'l',
+                    ')' => 'r',
+                    '{' => 'q',
+                    '}' => 'w',
+                    '[' => 'e',
+                    ']' => 'r',
+                    ' ' => '_',
+                    _ => return Err(format!("Disallowed character {}", c)),
+                })
+            }
+        })
+        .collect()
+}
 /// Get the variables from a target.
 ///
 /// The string constructs a new HashMap with the variables
@@ -920,7 +956,7 @@ fn generate_target(
         let function = create_all_hats(
             &target["blocks"],
             block_reference,
-            target["name"].to_string(),
+            convert_ident_name(&target["name"].to_string())?,
         )?;
         Ok(format!(
             "/*let mut {name}=Rc::new(Mutex::new(Stage{{
@@ -975,7 +1011,7 @@ fn generate_target(
         let function = create_all_hats(
             &target["blocks"],
             block_reference,
-            target["name"].to_string(),
+            convert_ident_name(&target["name"].to_string())?,
         )?;
 
         Ok(format!(
@@ -1017,7 +1053,7 @@ fn generate_target(
             //sprites.push({name}.clone());
 
             {function}",
-            name = target["name"],
+            name = convert_ident_name(&target["name"].to_string())?,
             visible = target["visible"],
             x = target["x"],
             y = target["y"],
