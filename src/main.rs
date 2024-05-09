@@ -18,13 +18,40 @@ mod target;
 #[command(author, version, about, long_about = None)]
 struct Cli {
     /// The id of the scratch project to compile.
-    id: u64,
+    id: String,
     /// Keep intermediate files (such as project.json and file.sb3)
     #[arg(short, long)]
     keep_intermediate_files: bool,
     /// Directory to put the project in. Defaults to `./output/`
     #[arg(short, long, value_name = "DIR")]
     output: Option<PathBuf>,
+}
+
+/// Parse a scratch id. This can either be a plain number,
+/// or a full scratch url ("https://scratch.mit.edu/projects/ID").
+fn parse_id(s: &str) -> Result<u64, ()> {
+    use nom::{
+        branch::alt,
+        bytes::complete::tag,
+        character::complete::{alphanumeric0, digit1},
+        sequence::tuple,
+        IResult,
+    };
+
+    /// Parse a scratch url and extract the id
+    fn parse_url(s: &str) -> IResult<&str, u64> {
+        tuple((alphanumeric0, tag("://scratch.mit.edu/projects/"), digit1))(s)
+            .map(|x| (x.0, x.1 .2.parse().unwrap()))
+    }
+
+    fn parse_id(s: &str) -> IResult<&str, u64> {
+        digit1(s).map(|x| (x.0, x.1.parse().unwrap()))
+    }
+
+    Ok(match alt((parse_url, parse_id))(s) {
+        Ok((_, y)) => y,
+        Err(_) => return Err(()),
+    })
 }
 
 /// Creates a block reference hashmap.
@@ -255,8 +282,12 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
 fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
 
-    let project = get_project_online(cli.id as u32)?;
-    let project_details = get_project_details(cli.id)?;
+    let id = parse_id(&cli.id).or(Err(
+        "Cannot parse id. Must be either a full scratch url or a number.",
+    ))?;
+
+    let project = get_project_online(id as u32)?;
+    let project_details = get_project_details(id)?;
     let output = match cli.output {
         Some(o) => o,
         None => PathBuf::from("./output/"),
@@ -264,7 +295,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     println!(
         "Compiling project https://scratch.mit.edu/projects/{} ({} by {})",
-        cli.id, project_details["title"], project_details["author"]["username"]
+        id, project_details["title"], project_details["author"]["username"]
     );
 
     if cli.keep_intermediate_files {
