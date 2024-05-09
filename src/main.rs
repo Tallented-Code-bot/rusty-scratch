@@ -109,6 +109,11 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
         "motion_setrotationstyle",
         "set_rotation_style(sprite.clone().unwrap(),STYLE);",
     );
+    blocks.insert(
+        "sound_playuntildone",
+        "play_until_done(sprite.clone(), stage.clone(), SOUND_MENU);",
+    );
+    blocks.insert("sound_sounds_menu", "SOUND_MENU");
     blocks.insert("event_whenflagclicked", "flag_clicked();");
     blocks.insert(
         "control_repeat",
@@ -352,15 +357,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         fn main(){{
             let opengl = OpenGL::V3_2;
 
-            // Create a glutin window
-            let mut window: GlutinWindow = WindowSettings::new(\"rusty-scratch\",[600,400])
-                .graphics_api(opengl)
+            let mut window: PistonWindow<Sdl2Window> = WindowSettings::new(\"rusty-scratch\",[600,400])
                 .exit_on_esc(true)
-                .build()
-                .unwrap();
+                .build().unwrap();
 
             let mut keyboard = Keyboard::new();
             let mut mouse = Mouse::new();
+
+            let sdl = window.window.sdl_context.to_owned();
 
 
             let mut program=Program::new();
@@ -381,6 +385,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             }}
 
             {{Stage.lock().unwrap().sprites.sort_by(|a,b| a.lock().unwrap().layer.cmp(&b.lock().unwrap().layer));}}
+
+            music::start_context::<Value,Value,_>(&sdl, 16, || {{
+
+            initialize_sounds(Stage.clone());
 
             let mut events = Events::new(EventSettings::new());
             events.set_max_fps(30);
@@ -412,6 +420,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                     //println!(\"Mouse moved to {{}}\",s.mouse);
                 }}
             }}
+
+         }}
+
+         );
 
         }}
         ",
@@ -976,6 +988,7 @@ fn generate_target(
                     .video_state({videoState})
                     .video_transparency({videoTransparency})
                     {costume}
+                    {sounds}
                     {variables}
                     {lists}
                     .build()
@@ -992,6 +1005,7 @@ fn generate_target(
             variables = get_variables(target).expect("There are no cloud variables"),
             lists = get_lists(target).unwrap(),
             costume = target_costumes(target),
+            sounds = target_sounds(target),
         ))
     } else {
         /* let function = create_hat(
@@ -1035,6 +1049,7 @@ fn generate_target(
                     .rotation_style({rotationStyle})
                     .layer({layer})
                     {costumes}
+                    {sounds}
                     {variables}
                     {lists}
                     .build()
@@ -1062,6 +1077,7 @@ fn generate_target(
                 .unwrap()
                 .to_str(),
             costumes = target_costumes(target),
+            sounds = target_sounds(target),
         ))
     }
 }
@@ -1125,6 +1141,9 @@ fn create_project(path: &PathBuf) -> Result<(), io::Error> {
     resvg = \"0.25.0\"
     chrono = \"0.4.23\"
     uuid = {version = \"1.4.1\", features = [\"v4\",\"fast-rng\"]}
+    piston-music = \"0.26.0\"
+    piston_window = \"0.120.0\"
+    pistoncore-sdl2_window = \"0.67.0\"
     ";
 
     let toml_path = {
@@ -1167,6 +1186,27 @@ fn get_target_assets(target: &JsonValue, path: &Path) -> Result<(), Box<dyn Erro
         let mut content = response.into_reader();
         std::io::copy(&mut content, &mut file)?;
     }
+
+    // Iterate through all sounds and download them.
+    for sound in target["sounds"].members() {
+        let response = ureq::get(&format!(
+            "https://assets.scratch.mit.edu/{}",
+            sound["md5ext"]
+        ))
+        .call()?;
+
+        let mut file = std::fs::File::create({
+            let mut p = path.to_path_buf();
+            p.push("assets");
+            p.push(target["name"].to_string());
+            p.push(format!("{}.{}", sound["name"], sound["dataFormat"]));
+            p
+        })?;
+
+        let mut content = response.into_reader();
+        std::io::copy(&mut content, &mut file)?;
+    }
+
     Ok(())
 }
 
@@ -1188,6 +1228,21 @@ fn target_costumes(target: &JsonValue) -> String {
         //                                 &mut {name}
         //                             );\n"));
         to_return.push_str(&format!(".add_costume(Costume::new(String::from(\"{costume_name}\"),PathBuf::from(\"assets/{name}/{costumename}.{format}\"),1.0).unwrap())\n"))
+    }
+
+    to_return
+}
+
+fn target_sounds(target: &JsonValue) -> String {
+    let mut to_return = String::new();
+
+    for sound in target["sounds"].members() {
+        let sound_name = &sound["name"];
+        let format = &sound["dataFormat"];
+
+        to_return.push_str(&format!(
+            ".add_sound(Sound::new(String::from(\"{sound_name}\"), String::from(\"{format}\")))"
+        ));
     }
 
     to_return

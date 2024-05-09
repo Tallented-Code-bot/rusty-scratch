@@ -15,6 +15,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f26201604c87b1e01bd3d98f8d5d9a8fcbb815e8cedb41ffccbeb4bf593a35fe"
 
 [[package]]
+name = "adler32"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aae1277d39aeec15cb388266ecc24b11c80469deae6067e17a1a7aa9e5c1f234"
+
+[[package]]
 name = "aes"
 version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -500,6 +506,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b365fabc795046672053e29c954733ec3b05e4be654ab130fe8f1f94d7051f35"
 
 [[package]]
+name = "current"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32aae0a81b2430d8d8d461a35405b75e7fed07d43df2f9066d12a7c0e89916f0"
+
+[[package]]
 name = "cxx"
 version = "1.0.87"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -585,6 +597,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d7439c3735f405729d52c3fbbe4de140eaf938a1fe47d227c27f8254d4302a5"
 
 [[package]]
+name = "deflate"
+version = "0.8.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73770f8e1fe7d64df17ca66ad28994a0a623ea497fa69486e14984e715c5d174"
+dependencies = [
+ "adler32",
+ "byteorder",
+]
+
+[[package]]
 name = "derivative"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -655,6 +677,15 @@ name = "downcast-rs"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ea835d29036a4087793836fa931b08837ad5e957da9e23886b29586fb9b6650"
+
+[[package]]
+name = "draw_state"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33cf9537e2d06891448799b96d5a8c8083e0e90522a7fdabe6ebf4f41d79d651"
+dependencies = [
+ "bitflags",
+]
 
 [[package]]
 name = "either"
@@ -867,6 +898,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "gfx"
+version = "0.18.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eb754057e8bfb8fdb38a33b9caa213dbeb2cbbef2003fe6b2cb36dff96098e0a"
+dependencies = [
+ "draw_state",
+ "gfx_core",
+ "log",
+]
+
+[[package]]
+name = "gfx_core"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75fbddaef2e12b4995900539d7209d947b988a3d87ee8737484d049b526e5441"
+dependencies = [
+ "bitflags",
+ "draw_state",
+ "log",
+]
+
+[[package]]
+name = "gfx_device_gl"
+version = "0.16.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "109c385fa380c18888633aa27d1e16cbae518469702a2f69dcb5f52d5378bebc"
+dependencies = [
+ "gfx_core",
+ "gfx_gl",
+ "log",
+]
+
+[[package]]
+name = "gfx_gl"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2d38164670920cfb7491bc0cf6f49f0554bd1c44cdbedc6c78d2bf91691ff5e"
+dependencies = [
+ "gl_generator 0.14.0",
+]
+
+[[package]]
 name = "gif"
 version = "0.11.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1064,6 +1137,25 @@ dependencies = [
 
 [[package]]
 name = "image"
+version = "0.23.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24ffcb7e7244a9bf19d35bf2883b9c080c4ced3c07a9895572178cdb8f13f6a1"
+dependencies = [
+ "bytemuck",
+ "byteorder",
+ "color_quant",
+ "gif",
+ "jpeg-decoder 0.1.22",
+ "num-iter",
+ "num-rational 0.3.2",
+ "num-traits",
+ "png 0.16.8",
+ "scoped_threadpool",
+ "tiff 0.6.1",
+]
+
+[[package]]
+name = "image"
 version = "0.24.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bd8e4fb07cf672b1642304e731ef8a6a4c7891d67bb4fd4f5ce58cd6ed86803c"
@@ -1074,11 +1166,11 @@ dependencies = [
  "exr",
  "gif",
  "jpeg-decoder 0.2.6",
- "num-rational",
+ "num-rational 0.4.1",
  "num-traits",
- "png",
+ "png 0.17.6",
  "scoped_threadpool",
- "tiff",
+ "tiff 0.7.3",
 ]
 
 [[package]]
@@ -1158,6 +1250,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af25a77299a7f711a01975c35a6a424eb6862092cc2d6c72c4ed6cbc56dfc1fa"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "jpeg-decoder"
+version = "0.1.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "229d53d58899083193af11e15917b5640cd40b29ff475a1fe4ef725deb02d0f2"
+dependencies = [
+ "rayon",
 ]
 
 [[package]]
@@ -1355,6 +1456,25 @@ checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
 name = "miniz_oxide"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "791daaae1ed6889560f8c4359194f56648355540573244a5448a83ba1ecc7435"
+dependencies = [
+ "adler32",
+]
+
+[[package]]
+name = "miniz_oxide"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a92518e98c078586bc6c934028adcca4c92a53d6a958196de835170a01d84e4b"
+dependencies = [
+ "adler",
+ "autocfg",
+]
+
+[[package]]
+name = "miniz_oxide"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6f5c75688da582b8ffc1f1799e9db273f32133c49e048f614d22ec3256773ccc"
@@ -1520,6 +1640,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "225d3389fb3509a24c93f5c29eb6bde2586b98d9f016636dff58d7c6f7569cd9"
 dependencies = [
  "autocfg",
+ "num-traits",
+]
+
+[[package]]
+name = "num-iter"
+version = "0.1.44"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d869c01cc0c455284163fd0092f1f93835385ccab5a98a0dcc497b2f8bf055a9"
+dependencies = [
+ "autocfg",
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
+name = "num-rational"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "12ac428b1cb17fce6f731001d307d351ec70a6d202fc2e60f7d4c5e42d8f4f07"
+dependencies = [
+ "autocfg",
+ "num-integer",
  "num-traits",
 ]
 
@@ -1733,10 +1875,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ad78bf43dcf80e8f950c92b84f938a0fc7590b7f6866fbcbeca781609c115590"
 
 [[package]]
+name = "piston-gfx_texture"
+version = "0.41.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de8d1197620f9774197c2f4fa5bca2b667ec40a9521160d6a4b46ccfdf4ac97c"
+dependencies = [
+ "gfx",
+ "gfx_core",
+ "image 0.23.14",
+ "piston-texture",
+]
+
+[[package]]
 name = "piston-graphics_api_version"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b06401e3ea38467d8d85b394557408107e3e56d827f0d00c9b47e902cbd1bed"
+
+[[package]]
+name = "piston-music"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6df0c7c541892f0597b4203c0f61cef1e6e73a145c392f1e9d14d6cc2887f046"
+dependencies = [
+ "current",
+ "sdl2",
+]
 
 [[package]]
 name = "piston-shaders_graphics2d"
@@ -1757,6 +1921,35 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61ecaf8ae0d71dd9cdbbd8662b47659621c09430ff3cb880d154858d3b8ac001"
 dependencies = [
  "piston-float",
+]
+
+[[package]]
+name = "piston2d-gfx_graphics"
+version = "0.73.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84b79261cc8dfd181ad82640a1cac6fcbdb57f3ef447673ec8ec6926e5b33a8d"
+dependencies = [
+ "draw_state",
+ "gfx",
+ "piston-gfx_texture",
+ "piston-shaders_graphics2d",
+ "piston2d-graphics 0.40.0",
+ "shader_version",
+]
+
+[[package]]
+name = "piston2d-graphics"
+version = "0.40.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "beb104512055b3bf44fc3d8dad9af88abda16a468d048626ae9b49f634802c67"
+dependencies = [
+ "fnv",
+ "interpolation",
+ "piston-texture",
+ "piston-viewport",
+ "read_color",
+ "rusttype",
+ "vecmath",
 ]
 
 [[package]]
@@ -1782,12 +1975,28 @@ checksum = "878b4b1873acd31db83001e3c22761ea4dcf545ab30032a547bc939bad510e11"
 dependencies = [
  "fnv",
  "gl",
- "image",
+ "image 0.24.4",
  "khronos_api 2.2.0",
  "piston-shaders_graphics2d",
  "piston-texture",
  "piston-viewport",
- "piston2d-graphics",
+ "piston2d-graphics 0.42.0",
+ "shader_version",
+]
+
+[[package]]
+name = "piston_window"
+version = "0.120.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96675d1e6ea52d59751e1fb956c3600b8d67a5d62cacbfb553f2ef07374d93f5"
+dependencies = [
+ "gfx",
+ "gfx_device_gl",
+ "piston",
+ "piston-texture",
+ "piston2d-gfx_graphics",
+ "piston2d-graphics 0.40.0",
+ "pistoncore-glutin_window",
  "shader_version",
 ]
 
@@ -1828,6 +2037,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "pistoncore-sdl2_window"
+version = "0.67.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b55e158730e7fb4dd4de6ce4c3856ec1f9afae2be0ae24daf446697b661ac168"
+dependencies = [
+ "gl",
+ "pistoncore-input",
+ "pistoncore-window",
+ "sdl2",
+ "shader_version",
+]
+
+[[package]]
 name = "pistoncore-window"
 version = "0.47.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1842,6 +2064,18 @@ name = "pkg-config"
 version = "0.3.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1df8c4ec4b0627e53bdf214615ad287367e482558cf84b109250b37464dc03ae"
+
+[[package]]
+name = "png"
+version = "0.16.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c3287920cb847dee3de33d301c463fba14dda99db24214ddf93f83d3021f4c6"
+dependencies = [
+ "bitflags",
+ "crc32fast",
+ "deflate",
+ "miniz_oxide 0.3.7",
+]
 
 [[package]]
 name = "png"
@@ -2074,7 +2308,7 @@ dependencies = [
  "jpeg-decoder 0.3.0",
  "log",
  "pico-args",
- "png",
+ "png 0.17.6",
  "rgb",
  "svgfilters",
  "svgtypes",
@@ -2162,9 +2396,12 @@ dependencies = [
  "json",
  "nom",
  "piston",
- "piston2d-graphics",
+ "piston-music",
+ "piston2d-graphics 0.42.0",
  "piston2d-opengl_graphics",
+ "piston_window",
  "pistoncore-glutin_window",
+ "pistoncore-sdl2_window",
  "rand",
  "resvg",
  "ureq",
@@ -2235,6 +2472,29 @@ checksum = "d53dcdb7c9f8158937a7981b48accfd39a43af418591a5d008c7b22b5e1b7ca4"
 dependencies = [
  "ring",
  "untrusted",
+]
+
+[[package]]
+name = "sdl2"
+version = "0.34.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "deecbc3fa9460acff5a1e563e05cb5f31bba0aa0c214bb49a43db8159176d54b"
+dependencies = [
+ "bitflags",
+ "lazy_static",
+ "libc",
+ "sdl2-sys",
+]
+
+[[package]]
+name = "sdl2-sys"
+version = "0.34.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41a29aa21f175b5a41a6e26da572d5e5d1ee5660d35f9f9d0913e8a802098f74"
+dependencies = [
+ "cfg-if 0.1.10",
+ "libc",
+ "version-compare",
 ]
 
 [[package]]
@@ -2488,6 +2748,17 @@ dependencies = [
 
 [[package]]
 name = "tiff"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a53f4706d65497df0c4349241deddf35f84cee19c87ed86ea8ca590f4464437"
+dependencies = [
+ "jpeg-decoder 0.1.22",
+ "miniz_oxide 0.4.4",
+ "weezl",
+]
+
+[[package]]
+name = "tiff"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7259662e32d1e219321eb309d5f9d898b779769d81b76e762c07c8e5d38fcb65"
@@ -2536,7 +2807,7 @@ dependencies = [
  "arrayvec",
  "bytemuck",
  "cfg-if 1.0.0",
- "png",
+ "png 0.17.6",
  "tiny-skia-path",
 ]
 
@@ -2729,6 +3000,12 @@ checksum = "956ae1e0d85bca567dee1dcf87fb1ca2e792792f66f87dced8381f99cd91156a"
 dependencies = [
  "piston-float",
 ]
+
+[[package]]
+name = "version-compare"
+version = "0.0.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d63556a25bae6ea31b52e640d7c41d1ab27faba4ccb600013837a3d0b3994ca1"
 
 [[package]]
 name = "version_check"

@@ -14,16 +14,20 @@ use genawaiter::{yield_, GeneratorState};
 use glutin_window::GlutinWindow;
 use graphics::types::{Matrix2d, Scalar};
 use graphics::{rectangle, Context as DrawingContext, Image};
+use music::{bind_music_file, bind_sound_file};
 use opengl_graphics::{GlGraphics, OpenGL, Texture, TextureSettings};
 use piston::event_loop::{EventLoop, EventSettings, Events};
 use piston::input::{Button, Key, RenderArgs, RenderEvent, UpdateArgs, UpdateEvent};
 use piston::window::WindowSettings;
 use piston::Window;
 use piston::{MouseButton, MouseCursorEvent, PressEvent, ReleaseEvent, Size as WindowSize};
+use piston_window::PistonWindow;
 use rand::Rng;
+use sdl2_window::Sdl2Window;
 use std::collections::VecDeque;
 use std::fmt::Display;
 use std::fs;
+use std::hash::Hash;
 use std::io;
 use std::ops::Index;
 use std::pin::Pin;
@@ -421,6 +425,14 @@ mod blocks {
         stage
             .sprites
             .sort_by(|a, b| a.lock().unwrap().layer.cmp(&b.lock().unwrap().layer))
+    }
+
+    pub fn play_until_done<T: Eq + std::hash::Hash + 'static + std::any::Any>(
+        sprite: Option<Rc<Mutex<Sprite>>>,
+        stage: Rc<Mutex<Stage>>,
+        sound: T,
+    ) {
+        music::play_sound(&sound, music::Repeat::Times(0), music::MAX_VOLUME);
     }
 
     /// Get a variable from an id.
@@ -1075,6 +1087,18 @@ pub enum Value {
     Null,
 }
 
+// Implement hash for value.
+impl Hash for Value {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Value::Num(x) => (*x as i32).hash(state),
+            Value::String(x) => x.hash(state),
+            Value::Bool(x) => x.hash(state),
+            Value::Null => ().hash(state),
+        }
+    }
+}
+
 impl Value {
     fn to_list_index(&self, length: usize, acceptAll: bool) -> Result<usize, ()> {
         if let Value::String(x) = &self {
@@ -1114,6 +1138,8 @@ impl PartialEq for Value {
         false
     }
 }
+
+impl Eq for Value {}
 
 impl PartialOrd for Value {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
@@ -1406,6 +1432,7 @@ pub struct SpriteBuilder {
     lists: HashMap<String, (String, Vec<Value>)>,
     costume: usize,
     costumes: Vec<Costume>,
+    sounds: Vec<Sound>,
     layer: u32,
 }
 
@@ -1425,6 +1452,7 @@ impl SpriteBuilder {
             lists: HashMap::new(),
             costume: 0,
             costumes: Vec::new(),
+            sounds: Vec::new(),
             layer: 999,
         }
     }
@@ -1442,6 +1470,7 @@ impl SpriteBuilder {
             lists: self.lists,
             variables: self.variables,
             costume: self.costume,
+            sounds: self.sounds,
             costumes: self.costumes,
             clone: false, // we never build a clone
             uuid: Uuid::new_v4(),
@@ -1494,6 +1523,10 @@ impl SpriteBuilder {
         self.costumes.push(costume);
         self
     }
+    pub fn add_sound(mut self, sound: Sound) -> Self {
+        self.sounds.push(sound);
+        self
+    }
     pub fn costume(mut self, costume: usize) -> Self {
         self.costume = costume;
         self
@@ -1531,6 +1564,9 @@ pub struct Sprite {
     /// A list of paths for costumes. Each item is an index to the program
     /// costume list.
     costumes: Vec<Costume>,
+
+    /// A list of sounds belonging to this sprite.
+    sounds: Vec<Sound>,
 
     /// Whether or not this sprite is a clone.
     ///
@@ -1581,6 +1617,7 @@ impl Clone for Sprite {
                         .expect("Creating costume will not fail")
                 })
                 .collect(),
+            sounds: Vec::new(), // TODO Fix this
             clone: self.clone,
             uuid: Uuid::new_v4(),
             to_be_deleted: self.to_be_deleted,
@@ -1653,6 +1690,41 @@ impl Costume {
             transform,
             gl,
         )
+    }
+}
+
+/// A sound that can be played.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct Sound {
+    name: String,
+    format: String,
+}
+
+impl Sound {
+    fn new(name: String, format: String) -> Self {
+        Self { name, format }
+    }
+}
+
+fn initialize_sounds(stage: Rc<Mutex<Stage>>) {
+    let stage = stage.lock().unwrap();
+
+    for sprite in &stage.sprites {
+        let sprite = sprite.lock().unwrap();
+
+        for sound in &sprite.sounds {
+            let val = Value::from(sound.name.clone());
+            let path = format!("assets/{}/{}.{}", sprite.name, sound.name, sound.format);
+
+            bind_sound_file(val, path);
+        }
+    }
+
+    for sound in &stage.sounds {
+        bind_sound_file(
+            Value::from(sound.name.clone()),
+            format!("assets/Stage/{}.{}", sound.name, sound.format),
+        );
     }
 }
 
@@ -2065,6 +2137,7 @@ pub struct StageBuilder {
     lists: HashMap<String, (String, Vec<Value>)>,
     costume: usize,
     costumes: Vec<Costume>,
+    sounds: Vec<Sound>,
 }
 
 impl StageBuilder {
@@ -2078,6 +2151,7 @@ impl StageBuilder {
             lists: HashMap::new(),
             costume: 0,
             costumes: Vec::new(),
+            sounds: Vec::new(),
         }
     }
     pub fn build(self) -> Stage {
@@ -2090,6 +2164,7 @@ impl StageBuilder {
             lists: self.lists,
             costume: self.costume,
             costumes: self.costumes,
+            sounds: self.sounds,
             sprites: Vec::new(),
             keyboard: Keyboard::new(),
             mouse: Mouse::new(),
@@ -2122,6 +2197,10 @@ impl StageBuilder {
         self.costumes.push(costume);
         self
     }
+    pub fn add_sound(mut self, sound: Sound) -> Self {
+        self.sounds.push(sound);
+        self
+    }
     pub fn costume(mut self, costume: usize) -> Self {
         self.costume = costume;
         self
@@ -2150,6 +2229,8 @@ pub struct Stage {
     /// The costumes in the stage. These are indexes to the list of costumes in
     /// the program.
     costumes: Vec<Costume>,
+    /// A list of sounds owned by the stage.
+    sounds: Vec<Sound>,
     keyboard: Keyboard,
     mouse: Mouse,
     /// A list of references to sprites.
