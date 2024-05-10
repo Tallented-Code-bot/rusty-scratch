@@ -441,18 +441,66 @@ mod blocks {
                 .find(|x| *x.name == String(&sound_name))
             {
                 let seconds_duration = sound.sample_count as f32 / sound.rate as f32;
-                music::play_sound(&sound_name, music::Repeat::Times(0), music::MAX_VOLUME);
+                music::play_sound(
+                    &sound_name,
+                    music::Repeat::Times(0),
+                    (sprite.volume as f64) / 100.0,
+                );
                 return seconds_duration;
             }
         } else {
             let stage = stage.lock().unwrap();
             if let Some(sound) = stage.sounds.iter().find(|x| *x.name == String(&sound_name)) {
                 let seconds_duration = sound.sample_count as f32 / sound.rate as f32;
-                music::play_sound(&sound_name, music::Repeat::Times(0), music::MAX_VOLUME);
+                music::play_sound(
+                    &sound_name,
+                    music::Repeat::Times(0),
+                    (stage.volume as f64) / 100.0,
+                );
                 return seconds_duration;
             }
         }
         return 0.0;
+    }
+
+    pub fn set_volume(sprite: Option<Rc<Mutex<Sprite>>>, stage: Rc<Mutex<Stage>>, volume: Value) {
+        if let Some(sprite) = sprite {
+            let mut sprite = sprite.lock().unwrap();
+
+            sprite.volume = Into::<f32>::into(volume).clamp(0.0, 100.0);
+        } else {
+            let mut stage = stage.lock().unwrap();
+
+            stage.volume = Into::<f32>::into(volume).clamp(0.0, 100.0);
+        }
+    }
+
+    pub fn change_volume(
+        sprite: Option<Rc<Mutex<Sprite>>>,
+        stage: Rc<Mutex<Stage>>,
+        changeBy: Value,
+    ) {
+        if let Some(sprite) = sprite {
+            let mut sprite = sprite.lock().unwrap();
+
+            sprite.volume += Into::<f32>::into(changeBy);
+            sprite.volume = sprite.volume.clamp(0.0, 100.0);
+        } else {
+            let mut stage = stage.lock().unwrap();
+
+            stage.volume += Into::<f32>::into(changeBy);
+            stage.volume = stage.volume.clamp(0.0, 100.0);
+        }
+    }
+
+    pub fn get_volume(sprite: Option<Rc<Mutex<Sprite>>>, stage: Rc<Mutex<Stage>>) -> Value {
+        if let Some(sprite) = sprite {
+            let sprite = sprite.lock().unwrap();
+            return Value::Num(sprite.volume);
+        } else {
+            let stage = stage.lock().unwrap();
+            return Value::Num(stage.volume);
+        }
     }
 
     /// Get a variable from an id.
@@ -1453,6 +1501,7 @@ pub struct SpriteBuilder {
     costume: usize,
     costumes: Vec<Costume>,
     sounds: Vec<Sound>,
+    volume: f32,
     layer: u32,
 }
 
@@ -1473,6 +1522,7 @@ impl SpriteBuilder {
             costume: 0,
             costumes: Vec::new(),
             sounds: Vec::new(),
+            volume: 100.0,
             layer: 999,
         }
     }
@@ -1491,6 +1541,7 @@ impl SpriteBuilder {
             variables: self.variables,
             costume: self.costume,
             sounds: self.sounds,
+            volume: self.volume,
             costumes: self.costumes,
             clone: false, // we never build a clone
             uuid: Uuid::new_v4(),
@@ -1547,6 +1598,10 @@ impl SpriteBuilder {
         self.sounds.push(sound);
         self
     }
+    pub fn set_volume(mut self, volume: f32) -> Self {
+        self.volume = volume;
+        self
+    }
     pub fn costume(mut self, costume: usize) -> Self {
         self.costume = costume;
         self
@@ -1587,6 +1642,9 @@ pub struct Sprite {
 
     /// A list of sounds belonging to this sprite.
     sounds: Vec<Sound>,
+
+    /// The volume of this sprite.
+    volume: f32,
 
     /// Whether or not this sprite is a clone.
     ///
@@ -1637,7 +1695,8 @@ impl Clone for Sprite {
                         .expect("Creating costume will not fail")
                 })
                 .collect(),
-            sounds: Vec::new(), // TODO Fix this
+            sounds: self.sounds.clone(),
+            volume: self.volume,
             clone: self.clone,
             uuid: Uuid::new_v4(),
             to_be_deleted: self.to_be_deleted,
@@ -2166,6 +2225,7 @@ pub struct StageBuilder {
     costume: usize,
     costumes: Vec<Costume>,
     sounds: Vec<Sound>,
+    volume: f32,
 }
 
 impl StageBuilder {
@@ -2180,6 +2240,7 @@ impl StageBuilder {
             costume: 0,
             costumes: Vec::new(),
             sounds: Vec::new(),
+            volume: 100.0,
         }
     }
     pub fn build(self) -> Stage {
@@ -2193,6 +2254,7 @@ impl StageBuilder {
             costume: self.costume,
             costumes: self.costumes,
             sounds: self.sounds,
+            volume: self.volume,
             sprites: Vec::new(),
             keyboard: Keyboard::new(),
             mouse: Mouse::new(),
@@ -2229,6 +2291,10 @@ impl StageBuilder {
         self.sounds.push(sound);
         self
     }
+    pub fn set_volume(mut self, volume: f32) -> Self {
+        self.volume = volume;
+        self
+    }
     pub fn costume(mut self, costume: usize) -> Self {
         self.costume = costume;
         self
@@ -2259,6 +2325,8 @@ pub struct Stage {
     costumes: Vec<Costume>,
     /// A list of sounds owned by the stage.
     sounds: Vec<Sound>,
+    /// The volume for the stage.
+    volume: f32,
     keyboard: Keyboard,
     mouse: Mouse,
     /// A list of references to sprites.

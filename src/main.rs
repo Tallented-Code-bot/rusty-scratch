@@ -117,6 +117,15 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
         "sound_play",
         "play_sound(sprite.clone(), stage.clone(), SOUND_MENU);",
     );
+    blocks.insert(
+        "sound_setvolumeto",
+        "set_volume(sprite.clone(), stage.clone(), VOLUME);",
+    );
+    blocks.insert(
+        "sound_changevolumeby",
+        "change_volume(sprite.clone(), stage.clone(), VOLUME);",
+    );
+    blocks.insert("sound_volume", "get_volume(sprite.clone(), stage.clone())");
     blocks.insert("sound_sounds_menu", "SOUND_MENU");
     blocks.insert("event_whenflagclicked", "flag_clicked();");
     blocks.insert(
@@ -995,6 +1004,7 @@ fn generate_target(
                     {sounds}
                     {variables}
                     {lists}
+                    .set_volume({volume}f32)
                     .build()
             ));
             {function}
@@ -1010,6 +1020,7 @@ fn generate_target(
             lists = get_lists(target).unwrap(),
             costume = target_costumes(target),
             sounds = target_sounds(target),
+            volume = target["volume"],
         ))
     } else {
         /* let function = create_hat(
@@ -1056,6 +1067,7 @@ fn generate_target(
                     {sounds}
                     {variables}
                     {lists}
+                    .set_volume({volume}f32)
                     .build()
             )));
 
@@ -1082,6 +1094,7 @@ fn generate_target(
                 .to_str(),
             costumes = target_costumes(target),
             sounds = target_sounds(target),
+            volume = target["volume"],
         ))
     }
 }
