@@ -111,7 +111,11 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
     );
     blocks.insert(
         "sound_playuntildone",
-        "play_until_done(sprite.clone(), stage.clone(), SOUND_MENU);",
+        "Wait::new(Duration::from_secs_f32(play_sound(sprite.clone(), stage.clone(), SOUND_MENU))).await;",
+    );
+    blocks.insert(
+        "sound_play",
+        "play_sound(sprite.clone(), stage.clone(), SOUND_MENU);",
     );
     blocks.insert("sound_sounds_menu", "SOUND_MENU");
     blocks.insert("event_whenflagclicked", "flag_clicked();");
@@ -1239,9 +1243,18 @@ fn target_sounds(target: &JsonValue) -> String {
     for sound in target["sounds"].members() {
         let sound_name = &sound["name"];
         let format = &sound["dataFormat"];
+        let rate = &sound["rate"];
+        let sample_count = &sound["sampleCount"];
 
         to_return.push_str(&format!(
-            ".add_sound(Sound::new(String::from(\"{sound_name}\"), String::from(\"{format}\")))"
+            ".add_sound(
+                Sound::new(
+                    String::from(\"{sound_name}\"),
+                    String::from(\"{format}\"),
+                    {rate},
+                    {sample_count}
+                )
+             )"
         ));
     }
 

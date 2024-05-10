@@ -25,7 +25,7 @@ use piston_window::PistonWindow;
 use rand::Rng;
 use sdl2_window::Sdl2Window;
 use std::collections::VecDeque;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::fs;
 use std::hash::Hash;
 use std::io;
@@ -56,7 +56,7 @@ const LIST_ITEM_LIMIT: Value = Value::Num(20000.0); // TODO check this
 
 mod blocks {
     use super::{
-        toNumber, Stamp, StartType, String, LIST_ITEM_LIMIT, SCRATCH_HALF_HEIGHT,
+        toNumber, Stamp, StartType, String, Wait, LIST_ITEM_LIMIT, SCRATCH_HALF_HEIGHT,
         SCRATCH_HALF_WIDTH,
     };
     use super::{Keyboard, Sprite, Stage, Value, Yield};
@@ -64,6 +64,7 @@ mod blocks {
     use core::f32::consts::PI;
     use rand::Rng;
     use std::io;
+    use std::time::Duration;
     use std::{
         f32::consts::E,
         rc::Rc,
@@ -427,12 +428,31 @@ mod blocks {
             .sort_by(|a, b| a.lock().unwrap().layer.cmp(&b.lock().unwrap().layer))
     }
 
-    pub fn play_until_done<T: Eq + std::hash::Hash + 'static + std::any::Any>(
+    pub fn play_sound(
         sprite: Option<Rc<Mutex<Sprite>>>,
         stage: Rc<Mutex<Stage>>,
-        sound: T,
-    ) {
-        music::play_sound(&sound, music::Repeat::Times(0), music::MAX_VOLUME);
+        sound_name: Value,
+    ) -> f32 {
+        if let Some(x) = sprite {
+            let sprite = x.lock().unwrap();
+            if let Some(sound) = sprite
+                .sounds
+                .iter()
+                .find(|x| *x.name == String(&sound_name))
+            {
+                let seconds_duration = sound.sample_count as f32 / sound.rate as f32;
+                music::play_sound(&sound_name, music::Repeat::Times(0), music::MAX_VOLUME);
+                return seconds_duration;
+            }
+        } else {
+            let stage = stage.lock().unwrap();
+            if let Some(sound) = stage.sounds.iter().find(|x| *x.name == String(&sound_name)) {
+                let seconds_duration = sound.sample_count as f32 / sound.rate as f32;
+                music::play_sound(&sound_name, music::Repeat::Times(0), music::MAX_VOLUME);
+                return seconds_duration;
+            }
+        }
+        return 0.0;
     }
 
     /// Get a variable from an id.
@@ -1698,11 +1718,18 @@ impl Costume {
 pub struct Sound {
     name: String,
     format: String,
+    rate: u32,
+    sample_count: u32,
 }
 
 impl Sound {
-    fn new(name: String, format: String) -> Self {
-        Self { name, format }
+    fn new(name: String, format: String, rate: u32, sample_count: u32) -> Self {
+        Self {
+            name,
+            format,
+            rate,
+            sample_count,
+        }
     }
 }
 
@@ -1826,6 +1853,7 @@ impl Future for Wait {
                 Poll::Pending
             }
             Wait::Middle { start, duration } => {
+                // println!("Wait being polled...");
                 let now = Instant::now();
                 if now >= start + duration {
                     *self = Wait::End;
