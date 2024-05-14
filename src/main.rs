@@ -368,28 +368,37 @@ fn main() -> Result<(), Box<dyn Error>> {
         // Below this is generated code.
 
         fn main(){{
-            let opengl = OpenGL::V3_2;
+            let sdl_context = sdl2::init().unwrap();
+            let video_subsystem = sdl_context.video().unwrap();
 
-            let mut window: PistonWindow<Sdl2Window> = WindowSettings::new(\"rusty-scratch\",[600,400])
-                .exit_on_esc(true)
-                .build().unwrap();
-
-            let mut keyboard = Keyboard::new();
-            let mut mouse = Mouse::new();
-
-            let sdl = window.window.sdl_context.to_owned();
+            let window = video_subsystem.window(\"rusty-scratch\", 600,400)
+                .opengl()
+                .build_glium()
+                .unwrap();
 
 
-            let mut program=Program::new();
-            let mut sprites: Vec<Rc<Mutex<Sprite>>> = Vec::new();
+            let mut event_pump = sdl_context.event_pump().unwrap();
 
+
+            //let mut keyboard = Keyboard::new();
+            //let mut mouse = Mouse::new();
+
+            // let sdl = window.window.sdl_context.to_owned();
+
+
+            // let mut program=Program::new();
+            // let mut sprites: Vec<Rc<Mutex<Sprite>>> = Vec::new();
+
+            /*
             {targets}
+            */
             // (Sprite1.blocks.function)(&mut Sprite1);
             
             //program.add_threads(Sprite1.blocks);
             //program.add_all_threads();
 
 
+            /*
             fn clone_sprite(sprite: String, target:Rc<Mutex<Sprite>>, stage:Rc<Mutex<Stage>>) -> Vec<Thread>{{
                 match &*sprite{{
                     {clone_content}
@@ -397,46 +406,130 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }}
             }}
 
-            {{Stage.lock().unwrap().sprites.sort_by(|a,b| a.lock().unwrap().layer.cmp(&b.lock().unwrap().layer));}}
+            {{Stage.lock().unwrap().sprites.sort_by(|a,b| a.lock().unwrap().layer.cmp(&b.lock().unwrap().layer));}}*/
 
-            music::start_context::<Value,Value,_>(&sdl, 16, || {{
+            let shape = vec![
+                Vertex{{position: [-0.5, -0.5], tex_coords: [0.0, 0.0]}},
+                Vertex{{position: [0.5, -0.5], tex_coords: [1.0, 0.0]}},
+                Vertex{{position: [0.5, 0.5], tex_coords: [1.0, 1.0]}},
+                Vertex{{position: [0.5, 0.5], tex_coords: [1.0, 1.0]}},
+                Vertex{{position: [-0.5, 0.5], tex_coords: [0.0, 1.0]}},
+                Vertex{{position: [-0.5, -0.5], tex_coords: [0.0, 0.0]}},
+            ];
 
-            initialize_sounds(Stage.clone());
+            let vertex_buffer = glium::VertexBuffer::new(&window, &shape).unwrap();
+            let indices = glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList);
 
-            let mut events = Events::new(EventSettings::new());
-            events.set_max_fps(30);
-            events.set_ups(30);
-            program.click_flag();
-            while let Some(e) = events.next(&mut window){{
-                if let Some(args) = e.render_args(){{
-                    program.render(&args,Stage.clone(),window.size());
+            let vertex_shader_src = r#\"
+                #version 140
+
+                in vec2 position;
+                in vec2 tex_coords;
+                out vec2 v_tex_coords;
+
+                uniform mat4 matrix;
+
+                void main(){{
+                    v_tex_coords = tex_coords;
+                    gl_Position = matrix * vec4(position, 0.0, 1.0);
                 }}
-                if let Some(args) = e.update_args(){{
-                    program.tick(Stage.clone());
-                    
+
+            \"#;
+
+            let fragment_shader_src = r#\"
+                #version 140
+                in vec2 v_tex_coords;
+                out vec4 color;
+
+                uniform sampler2D tex;
+
+                void main() {{
+                    color = texture(tex, v_tex_coords);
                 }}
-                if let Some(Button::Keyboard(key)) = e.press_args(){{
-                    let mut s=Stage.lock().unwrap();
-                    s.keyboard.press_key(key);
-                    //println!(\"Pressed {{:?}}\",key);
-                    //println!(\"{{:?}}\",s.keyboard);
-                }}
-                if let Some(Button::Keyboard(key)) = e.release_args(){{
-                    let mut s=Stage.lock().unwrap();
-                    s.keyboard.release_key(key);
-                    //println!(\"Released {{:?}}\",key);
-                }}
-                if let Some(pos) = e.mouse_cursor_args(){{
-                    let mut s = Stage.lock().unwrap();
-                    s.mouse.set_piston_position(pos,window.size());
-                    //mouse.set_piston_position(pos,window.size());
-                    //println!(\"Mouse moved to {{}}\",s.mouse);
+            \"#;
+
+            let image = image::load(std::io::Cursor::new(&include_bytes!(\"../assets/Aprite_2/costume1.png\")), image::ImageFormat::Png).unwrap().to_rgba8();
+            let image_dimensions = image.dimensions();
+            let image = glium::texture::RawImage2d::from_raw_rgba_reversed(&image.into_raw(), image_dimensions);
+
+            let texture = glium::texture::Texture2d::new(&window, image).unwrap();
+
+
+
+            let program = glium::Program::from_source(&window, vertex_shader_src, fragment_shader_src, None).unwrap();
+            let mut t: f32 = 0.0;
+
+
+
+            'running: loop{{
+                t += 0.02;
+                let x_off = t.sin() * 0.5;
+
+                let uniforms = uniform!{{
+                    matrix: [
+                        [1.0, 0.0, 0.0, 0.0],
+                        [0.0, 1.0, 0.0, 0.0],
+                        [0.0, 0.0, 1.0, 0.0],
+                        [ x_off , 0.0, 0.0, 1.0f32],
+                    ],
+                    tex: &texture,
+                }};
+
+                let mut target = window.draw();
+                target.clear_color(0.0, 0.0, 1.0, 1.0);
+                target.draw(&vertex_buffer, &indices, &program, &uniforms, &Default::default()).unwrap();
+                target.finish().unwrap();
+
+
+                for event in event_pump.poll_iter(){{
+                    use sdl2::event::Event;
+
+                    match event{{
+                        Event::Quit {{..}} => {{break 'running;}},
+                        _ => ()
+                    }}
                 }}
             }}
 
-         }}
 
-         );
+            // music::start_context::<Value,Value,_>(&sdl, 16, || {{
+
+            // initialize_sounds(Stage.clone());
+
+            // let mut events = Events::new(EventSettings::new());
+            // events.set_max_fps(30);
+            // events.set_ups(30);
+            // program.click_flag();
+            // while let Some(e) = events.next(&mut window){{
+            //     if let Some(args) = e.render_args(){{
+            //         program.render(&args,Stage.clone(),window.size());
+            //     }}
+            //     if let Some(args) = e.update_args(){{
+            //         program.tick(Stage.clone());
+            //
+            //     }}
+            //     if let Some(Button::Keyboard(key)) = e.press_args(){{
+            //         let mut s=Stage.lock().unwrap();
+            //         s.keyboard.press_key(key);
+            //         //println!(\"Pressed {{:?}}\",key);
+            //         //println!(\"{{:?}}\",s.keyboard);
+            //     }}
+            //     if let Some(Button::Keyboard(key)) = e.release_args(){{
+            //         let mut s=Stage.lock().unwrap();
+            //         s.keyboard.release_key(key);
+            //         //println!(\"Released {{:?}}\",key);
+            //     }}
+            //     if let Some(pos) = e.mouse_cursor_args(){{
+            //         let mut s = Stage.lock().unwrap();
+            //         s.mouse.set_piston_position(pos,window.size());
+            //         //mouse.set_piston_position(pos,window.size());
+            //         //println!(\"Mouse moved to {{}}\",s.mouse);
+            //     }}
+            // }}
+
+         // }}
+
+         // );
 
         }}
         ",
@@ -1158,9 +1251,13 @@ fn create_project(path: &PathBuf) -> Result<(), io::Error> {
     resvg = \"0.25.0\"
     chrono = \"0.4.23\"
     uuid = {version = \"1.4.1\", features = [\"v4\",\"fast-rng\"]}
-    piston-music = \"0.26.0\"
     piston_window = \"0.120.0\"
-    pistoncore-sdl2_window = \"0.67.0\"
+
+    sdl2 = \"0.36\"
+    glium = \"0.34\"
+    gl = \"0.14.0\"
+    image = \"0.25.1\"
+
     ";
 
     let toml_path = {
