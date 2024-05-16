@@ -380,25 +380,20 @@ fn main() -> Result<(), Box<dyn Error>> {
             let mut event_pump = sdl_context.event_pump().unwrap();
 
 
-            //let mut keyboard = Keyboard::new();
-            //let mut mouse = Mouse::new();
-
-            // let sdl = window.window.sdl_context.to_owned();
+            let mut keyboard = Keyboard::new();
+            let mut mouse = Mouse::new();
 
 
-            // let mut program=Program::new();
-            // let mut sprites: Vec<Rc<Mutex<Sprite>>> = Vec::new();
+            let mut program=Program::new(&window);
+            let mut sprites: Vec<Rc<Mutex<Sprite>>> = Vec::new();
 
-            /*
             {targets}
-            */
             // (Sprite1.blocks.function)(&mut Sprite1);
             
-            //program.add_threads(Sprite1.blocks);
-            //program.add_all_threads();
+            // program.add_threads(Sprite1.blocks);
+            // program.add_all_threads();
 
 
-            /*
             fn clone_sprite(sprite: String, target:Rc<Mutex<Sprite>>, stage:Rc<Mutex<Stage>>) -> Vec<Thread>{{
                 match &*sprite{{
                     {clone_content}
@@ -406,80 +401,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }}
             }}
 
-            {{Stage.lock().unwrap().sprites.sort_by(|a,b| a.lock().unwrap().layer.cmp(&b.lock().unwrap().layer));}}*/
+            {{Stage.lock().unwrap().sprites.sort_by(|a,b| a.lock().unwrap().layer.cmp(&b.lock().unwrap().layer));}}
 
-            let shape = vec![
-                Vertex{{position: [-0.5, -0.5], tex_coords: [0.0, 0.0]}},
-                Vertex{{position: [0.5, -0.5], tex_coords: [1.0, 0.0]}},
-                Vertex{{position: [0.5, 0.5], tex_coords: [1.0, 1.0]}},
-                Vertex{{position: [0.5, 0.5], tex_coords: [1.0, 1.0]}},
-                Vertex{{position: [-0.5, 0.5], tex_coords: [0.0, 1.0]}},
-                Vertex{{position: [-0.5, -0.5], tex_coords: [0.0, 0.0]}},
-            ];
-
-            let vertex_buffer = glium::VertexBuffer::new(&window, &shape).unwrap();
-            let indices = glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList);
-
-            let vertex_shader_src = r#\"
-                #version 140
-
-                in vec2 position;
-                in vec2 tex_coords;
-                out vec2 v_tex_coords;
-
-                uniform mat4 matrix;
-
-                void main(){{
-                    v_tex_coords = tex_coords;
-                    gl_Position = matrix * vec4(position, 0.0, 1.0);
-                }}
-
-            \"#;
-
-            let fragment_shader_src = r#\"
-                #version 140
-                in vec2 v_tex_coords;
-                out vec4 color;
-
-                uniform sampler2D tex;
-
-                void main() {{
-                    color = texture(tex, v_tex_coords);
-                }}
-            \"#;
-
-            let image = image::load(std::io::Cursor::new(&include_bytes!(\"../assets/Aprite_2/costume1.png\")), image::ImageFormat::Png).unwrap().to_rgba8();
-            let image_dimensions = image.dimensions();
-            let image = glium::texture::RawImage2d::from_raw_rgba_reversed(&image.into_raw(), image_dimensions);
-
-            let texture = glium::texture::Texture2d::new(&window, image).unwrap();
-
-
-
-            let program = glium::Program::from_source(&window, vertex_shader_src, fragment_shader_src, None).unwrap();
-            let mut t: f32 = 0.0;
-
-
-
+            program.click_flag();
             'running: loop{{
-                t += 0.02;
-                let x_off = t.sin() * 0.5;
-
-                let uniforms = uniform!{{
-                    matrix: [
-                        [1.0, 0.0, 0.0, 0.0],
-                        [0.0, 1.0, 0.0, 0.0],
-                        [0.0, 0.0, 1.0, 0.0],
-                        [ x_off , 0.0, 0.0, 1.0f32],
-                    ],
-                    tex: &texture,
-                }};
-
-                let mut target = window.draw();
-                target.clear_color(0.0, 0.0, 1.0, 1.0);
-                target.draw(&vertex_buffer, &indices, &program, &uniforms, &Default::default()).unwrap();
-                target.finish().unwrap();
-
+                program.tick(Stage.clone());
+                program.render(Stage.clone());
 
                 for event in event_pump.poll_iter(){{
                     use sdl2::event::Event;
@@ -1287,7 +1214,6 @@ fn get_target_assets(target: &JsonValue, path: &Path) -> Result<(), Box<dyn Erro
             costume["md5ext"]
         ))
         .call()?;
-        // .expect("Could not download asset file");
 
         let mut file = std::fs::File::create({
             let mut p = path.to_path_buf();
@@ -1337,11 +1263,12 @@ fn target_costumes(target: &JsonValue) -> String {
         if format != "svg" {
             continue;
         }
+
         // to_return.push_str(&format!("program.add_costume_{stage_or_sprite}(
         //                                 Costume::new(PathBuf::from(\"assets/{name}/{costumename}.{format}\"),1.0).unwrap(),
         //                                 &mut {name}
         //                             );\n"));
-        to_return.push_str(&format!(".add_costume(Costume::new(String::from(\"{costume_name}\"),PathBuf::from(\"assets/{name}/{costumename}.{format}\"),1.0).unwrap())\n"))
+        to_return.push_str(&format!(".add_costume(Costume::new(&window, String::from(\"{costume_name}\"),PathBuf::from(\"assets/{name}/{costumename}.{format}\"),1.0).unwrap())\n"))
     }
 
     to_return

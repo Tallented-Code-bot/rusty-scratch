@@ -11,10 +11,12 @@ use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use core::task::{RawWaker, RawWakerVTable, Waker};
 use genawaiter::rc::{gen, Co};
 use genawaiter::{yield_, GeneratorState};
+use glium::{implement_vertex, uniform, Frame, Surface};
+use glium_sdl2::DisplayBuild;
 use glutin_window::GlutinWindow;
 use graphics::types::{Matrix2d, Scalar};
 use graphics::{rectangle, Context as DrawingContext, Image};
-// use music::{bind_music_file, bind_sound_file};
+use image::{GenericImageView, ImageBuffer, Rgba};
 use opengl_graphics::{GlGraphics, OpenGL, Texture, TextureSettings};
 use piston::event_loop::{EventLoop, EventSettings, Events};
 use piston::input::{Button, Key, RenderArgs, RenderEvent, UpdateArgs, UpdateEvent};
@@ -23,9 +25,6 @@ use piston::Window;
 use piston::{MouseButton, MouseCursorEvent, PressEvent, ReleaseEvent, Size as WindowSize};
 use piston_window::PistonWindow;
 use rand::Rng;
-// use sdl2_window::Sdl2Window;
-use glium::{implement_vertex, uniform, Surface};
-use glium_sdl2::DisplayBuild;
 use sdl2::pixels::Color;
 use std::collections::VecDeque;
 use std::fmt::{Debug, Display};
@@ -49,6 +48,8 @@ use uuid::Uuid;
 
 use blocks::*;
 
+use self::glium_sdl2::SDL2Facade;
+
 // set the width and height of the stage here
 const SCRATCH_WIDTH: Value = Value::Num(480.0);
 const SCRATCH_HALF_WIDTH: Value = Value::Num(240.0);
@@ -58,6 +59,7 @@ const SCRATCH_HALF_HEIGHT: Value = Value::Num(180.0);
 const LIST_ITEM_LIMIT: Value = Value::Num(20000.0); // TODO check this
 
 mod blocks {
+    use super::glium_sdl2::SDL2Facade;
     use super::{
         toNumber, Stamp, StartType, String, Wait, LIST_ITEM_LIMIT, SCRATCH_HALF_HEIGHT,
         SCRATCH_HALF_WIDTH,
@@ -974,6 +976,7 @@ mod blocks {
     pub fn create_clone(
         stage: Rc<Mutex<Stage>>,
         sprite: Rc<Mutex<Sprite>>,
+        window: &SDL2Facade,
         to_clone: Value,
     ) -> String {
         let mut stage = stage.lock().unwrap();
@@ -986,7 +989,7 @@ mod blocks {
             x => stage.get_sprite(x.to_string()).unwrap(),
         };
 
-        let mut clone = clone_target.lock().unwrap().clone();
+        let mut clone = clone_target.lock().unwrap().clone(window);
 
         for s in stage
             .sprites
@@ -1425,6 +1428,15 @@ mod glium_sdl2 {
 struct Vertex {
     position: [f32; 2],
     tex_coords: [f32; 2],
+}
+
+impl Vertex {
+    fn new(position: [f32; 2], tex_coords: [f32; 2]) -> Self {
+        Self {
+            position,
+            tex_coords,
+        }
+    }
 }
 
 implement_vertex!(Vertex, position, tex_coords);
@@ -2006,10 +2018,8 @@ impl Sprite {
 
         self.costume = index as usize;
     }
-}
 
-impl Clone for Sprite {
-    fn clone(&self) -> Self {
+    fn clone(&self, window: &SDL2Facade) -> Self {
         Self {
             visible: self.visible,
             x: self.x,
@@ -2026,7 +2036,7 @@ impl Clone for Sprite {
                 .costumes
                 .iter()
                 .map(|c| {
-                    Costume::new(c.name.clone(), c.path.clone(), c.scale)
+                    Costume::new(window, c.name.clone(), c.path.clone(), c.scale)
                         .expect("Creating costume will not fail")
                 })
                 .collect(),
@@ -2037,6 +2047,14 @@ impl Clone for Sprite {
             to_be_deleted: self.to_be_deleted,
             layer: self.layer,
         }
+    }
+
+    /// Get the rendered direction. 0 is forward, 90 is up, 180 backwards, 270
+    /// down, etc.
+    ///
+    /// Formula from <https://math.stackexchange.com/questions/1589793/a-formula-to-convert-a-counter-clockwise-angle-to-clockwise-angle-with-an-offset>
+    fn get_rendered_direction(&self) -> f32 {
+        (-self.direction + 90.0).rem_euclid(360.0)
     }
 }
 
@@ -2063,8 +2081,10 @@ pub struct Costume {
     name: String,
     rotation_center_x: u32,
     rotation_center_y: u32,
-    texture: Texture,
-    image: Image,
+    texture: glium::texture::Texture2d,
+    program: glium::Program,
+    vertices: glium::VertexBuffer<Vertex>,
+    indices: glium::index::NoIndices,
     path: PathBuf,
     scale: f32,
 }
@@ -2082,28 +2102,61 @@ impl std::fmt::Debug for Costume {
 }
 
 impl Costume {
-    fn new(name: String, path: PathBuf, scale: f32) -> Result<Self, &'static str> {
-        let texture = get_texture_from_path(path.clone(), scale)?;
-        //let name = path.file_stem().unwrap().to_str().unwrap().to_string();
+    fn new(
+        window: &SDL2Facade,
+        name: String,
+        path: PathBuf,
+        scale: f32,
+    ) -> Result<Self, &'static str> {
+        let texture = get_texture_from_path(window, path.clone(), scale)?;
+
+        let (width, height) = texture.dimensions();
+        let top_left = Program::scratch_to_opengl([-(width as f32 / 2.0), height as f32 / 2.0]);
+        let bottom_right = Program::scratch_to_opengl([width as f32 / 2.0, -(height as f32 / 2.0)]);
+
+        let vertices_vec = Program::rect(top_left, bottom_right);
+        let vertices = glium::VertexBuffer::new(window, &vertices_vec).unwrap();
+        let indices = glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList);
+
+        let program = glium::Program::from_source(
+            window,
+            Program::get_vertex_shader(),
+            Program::get_fragment_shader(),
+            None,
+        )
+        .unwrap();
 
         Ok(Self {
             name,
             rotation_center_x: 0,
             rotation_center_y: 0,
             texture,
-            image: Image::new(),
+            vertices,
+            indices,
+            program,
             path,
             scale,
         })
     }
 
-    fn draw(&self, transform: Matrix2d, gl: &mut GlGraphics) {
-        self.image.draw(
-            &self.texture,
-            &graphics::draw_state::DrawState::default(),
-            transform,
-            gl,
-        )
+    fn draw(&self, target: &mut glium::Frame, transform: [[f32; 4]; 4]) {
+        let uniforms = uniform! {
+            matrix: transform,
+            tex: &self.texture
+        };
+
+        target
+            .draw(
+                &self.vertices,
+                &self.indices,
+                &self.program,
+                &uniforms,
+                &glium::DrawParameters {
+                    blend: glium::Blend::alpha_blending(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
     }
 }
 
@@ -2314,14 +2367,14 @@ impl Thread {
 
 /// The main project class.  This is in charge of running threads and
 /// redrawing the screen.
-pub struct Program {
+pub struct Program<'a> {
     threads: Vec<Thread>,
     //objects: Vec<Rc<Mutex<Sprite>>>,
-    gl: GlGraphics,
+    window: &'a SDL2Facade,
     costumes: Vec<Costume>,
 }
 
-impl Program {
+impl<'a> Program<'a> {
     /// Run 1 tick
     fn tick(&mut self, stage: Rc<Mutex<Stage>>) {
         self.add_threads_from_stage(stage.clone());
@@ -2377,10 +2430,10 @@ impl Program {
         self.delete_sprites(stage);
     }
 
-    fn new() -> Self {
+    fn new(window: &'a SDL2Facade) -> Self {
         Program {
             threads: Vec::new(),
-            gl: GlGraphics::new(OpenGL::V3_2),
+            window,
             costumes: Vec::new(),
         }
     }
@@ -2419,58 +2472,73 @@ impl Program {
         })
     }
 
-    /// Renders a red square.
-    fn render(&mut self, args: &RenderArgs, stage: Rc<Mutex<Stage>>, size: WindowSize) {
-        use graphics::*;
-
+    /// Render the stage, all sprites, and everything else that needs to be
+    /// rendered.
+    fn render(&mut self, stage: Rc<Mutex<Stage>>) {
         let stage = stage.lock().unwrap();
 
-        const GREEN: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
-        const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
-        const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+        let mut target = self.window.draw();
 
-        let square = rectangle::square(00.0, 0.0, 100.0);
-        // let rotation: Scalar = 2.0;
-        let (x, y) = (args.window_size[0] / 2.0, args.window_size[1] / 2.0);
+        target.clear_color(1.0, 1.0, 1.0, 1.0); // Clear the background color to white
+        let transform = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0f32],
+        ];
 
-        self.gl.draw(args.viewport(), |c, gl| {
-            // Clear the screen
-            clear(BLACK, gl);
+        stage.costumes[stage.costume].draw(&mut target, transform);
 
-            // self.costumes[stage.costumes[stage.costume]].draw(c.transform, gl);
-            stage.costumes[stage.costume].draw(c.transform, gl);
+        for stamp in &stage.stamps {
+            let transform = [
+                [1.0 * (stamp.size / 100.0), 0.0, 0.0, 0.0],
+                [0.0, 1.0 * (stamp.size / 100.0), 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [
+                    stamp.x / f32::from(SCRATCH_HALF_WIDTH),
+                    stamp.y / f32::from(SCRATCH_HALF_HEIGHT),
+                    0.0,
+                    1.0f32,
+                ],
+            ];
 
-            for stamp in &stage.stamps {
-                let stamp_sprite = stamp.sprite.lock().unwrap();
-                stamp_sprite.costumes[stamp.costume].draw(
-                    c.transform
-                        .trans(size.width / 2.0, size.height / 2.0)
-                        .trans(stamp.x.into(), <f32 as Into<f64>>::into(stamp.y * -1.0)),
-                    gl,
-                );
+            let stamp_sprite = stamp.sprite.lock().unwrap();
+            stamp_sprite.costumes[stamp.costume].draw(&mut target, transform);
+        }
+
+        for sprite in stage.sprites.clone() {
+            let sprite = sprite.lock().unwrap();
+
+            if !sprite.visible {
+                continue;
             }
 
-            // TODO sort by order
-            // Draw the sprites
-            for sprite in stage.sprites.clone() {
-                let sprite = sprite.lock().unwrap();
-                if !sprite.visible {
-                    // if the sprite is hidden, don't draw it.
-                    continue;
-                }
-                sprite.costumes[sprite.costume].draw(
-                    c.transform
-                        //.trans(240.0, 180.0)
-                        .trans(size.width / 2.0, size.height / 2.0)
-                        .trans(sprite.x.into(), <f32 as Into<f64>>::into(sprite.y * -1.0)),
-                    gl,
-                );
-            }
-        })
+            let transform = [
+                [
+                    sprite.get_rendered_direction().to_radians().cos() * (sprite.size / 100.0),
+                    (sprite.get_rendered_direction().to_radians().sin()),
+                    0.0,
+                    0.0,
+                ],
+                [
+                    -(sprite.get_rendered_direction().to_radians().sin()),
+                    sprite.get_rendered_direction().to_radians().cos() * (sprite.size / 100.0),
+                    0.0,
+                    0.0,
+                ],
+                [0.0, 0.0, 1.0, 0.0],
+                [
+                    sprite.x / f32::from(SCRATCH_HALF_WIDTH),
+                    sprite.y / f32::from(SCRATCH_HALF_HEIGHT),
+                    0.0,
+                    1.0f32,
+                ],
+            ];
 
-        // self.gl.draw(args.viewport(), |c, gl| {
-        //     clear(BLACK, gl);
-        // })
+            sprite.costumes[sprite.costume].draw(&mut target, transform);
+        }
+
+        target.finish().unwrap();
     }
 
     // /// Add threads from a sprite to the program.
@@ -2514,12 +2582,70 @@ impl Program {
             self.add_thread(thread);
         }
     }
+
+    /// Create openGL vertexes for a rectangle.
+    fn rect(top_left: [f32; 2], bottom_right: [f32; 2]) -> Vec<Vertex> {
+        let top_right = [bottom_right[0], top_left[1]];
+        let bottom_left = [top_left[0], bottom_right[1]];
+
+        vec![
+            Vertex::new(bottom_left, [0.0, 0.0]),
+            Vertex::new(bottom_right, [1.0, 0.0]),
+            Vertex::new(top_right, [1.0, 1.0]),
+            Vertex::new(top_right, [1.0, 1.0]),
+            Vertex::new(top_left, [0.0, 1.0]),
+            Vertex::new(bottom_left, [0.0, 0.0]),
+        ]
+    }
+
+    // Convert scratch coordinates to openGL coordinates
+    fn scratch_to_opengl(coords: [f32; 2]) -> [f32; 2] {
+        [
+            coords[0] / f32::from(SCRATCH_HALF_WIDTH),
+            coords[1] / f32::from(SCRATCH_HALF_HEIGHT),
+        ]
+    }
+
+    fn get_vertex_shader() -> &'static str {
+        r"
+        #version 140
+
+        in vec2 position;
+        in vec2 tex_coords;
+        out vec2 v_tex_coords;
+
+        uniform mat4 matrix;
+
+        void main(){
+            v_tex_coords = tex_coords;
+            gl_Position = matrix * vec4(position, 0.0, 1.0);
+        }"
+    }
+
+    fn get_fragment_shader() -> &'static str {
+        r"
+        #version 140
+        in vec2 v_tex_coords;
+        out vec4 color;
+
+        uniform sampler2D tex;
+
+        void main() {
+            color = texture(tex, v_tex_coords);
+            // if (color.w < 1){
+            //     color = vec4(1,0,0,1);
+            // }else{
+            //     color = vec4(0,1,0,1);
+            // }
+        }"
+    }
 }
 
 fn get_texture_from_path(
+    window: &SDL2Facade,
     path: PathBuf,
     scale: f32,
-) -> Result<opengl_graphics::Texture, &'static str> {
+) -> Result<glium::texture::Texture2d, &'static str> {
     use opengl_graphics::{CreateTexture, Format, Texture, TextureSettings};
     use resvg::tiny_skia::{Pixmap, Transform};
     use resvg::usvg::{FitTo, Options, Tree};
@@ -2538,16 +2664,17 @@ fn get_texture_from_path(
 
     resvg::render(&tree, fit_to, transform, pixmapmut);
 
-    let texture = Texture::create(
-        &mut (),
-        Format::Rgba8,
-        pixmap.data(),
-        [pixmap.width(), pixmap.height()],
-        &TextureSettings::new(),
-    )
-    .or(Err("Could not create texture"));
+    let image =
+        image::load_from_memory_with_format(&pixmap.encode_png().unwrap(), image::ImageFormat::Png)
+            .or(Err("Cannot load rendered svg file."))?
+            .to_rgba8();
+    let image_dimensions = image.dimensions();
+    let image =
+        glium::texture::RawImage2d::from_raw_rgba_reversed(&image.into_raw(), image_dimensions);
 
-    texture
+    let texture = glium::texture::Texture2d::new(window, image).unwrap();
+
+    Ok(texture)
 }
 
 pub struct StageBuilder {
