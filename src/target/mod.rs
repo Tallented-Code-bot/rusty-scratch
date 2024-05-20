@@ -11,6 +11,8 @@ use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use core::task::{RawWaker, RawWakerVTable, Waker};
 use genawaiter::rc::{gen, Co};
 use genawaiter::{yield_, GeneratorState};
+use glium::uniforms::AsUniformValue;
+use glium::uniforms::DynamicUniforms;
 use glium::{implement_vertex, uniform, Frame, Surface};
 use glium_sdl2::DisplayBuild;
 use glutin_window::GlutinWindow;
@@ -61,8 +63,8 @@ const LIST_ITEM_LIMIT: Value = Value::Num(20000.0); // TODO check this
 mod blocks {
     use super::glium_sdl2::SDL2Facade;
     use super::{
-        toNumber, Stamp, StartType, String, Wait, LIST_ITEM_LIMIT, SCRATCH_HALF_HEIGHT,
-        SCRATCH_HALF_WIDTH,
+        toNumber, Effect, Number, Stamp, StartType, String, Wait, LIST_ITEM_LIMIT,
+        SCRATCH_HALF_HEIGHT, SCRATCH_HALF_WIDTH,
     };
     use super::{Keyboard, Sprite, Stage, Value, Yield};
     use chrono::TimeZone;
@@ -886,6 +888,58 @@ mod blocks {
         println!("{}", speech);
     }
 
+    pub fn set_effect(sprite: Rc<Mutex<Sprite>>, effect: Value, amount: Value) {
+        let mut sprite = sprite.lock().unwrap();
+
+        let effects_len = sprite.effects.len();
+
+        let e = match &*String(&effect).to_lowercase() {
+            "color" => (Effect::Color, Number(&amount)),
+            "fisheye" => (Effect::Fisheye, Number(&amount)),
+            "whirl" => (Effect::Whirl, Number(&amount)),
+            "pixelate" => (Effect::Pixelate, Number(&amount)),
+            "mosaic" => (Effect::Mosaic, Number(&amount)),
+            "brightness" => (Effect::Brightness, Number(&amount)),
+            "ghost" => (Effect::Ghost, Number(&amount)),
+            _ => return,
+        };
+
+        if sprite.effects.insert(e.0, e.1).is_none() {
+            // if this is a new effect, we need to recompile the shaders.
+            sprite.need_to_recompile_shaders = true;
+        }
+    }
+
+    pub fn change_effect(sprite: Rc<Mutex<Sprite>>, effect: Value, amount: Value) {
+        let mut sprite = sprite.lock().unwrap();
+
+        let e = match &*String(&effect).to_lowercase() {
+            "color" => (Effect::Color, Number(&amount)),
+            "fisheye" => (Effect::Fisheye, Number(&amount)),
+            "whirl" => (Effect::Whirl, Number(&amount)),
+            "pixelate" => (Effect::Pixelate, Number(&amount)),
+            "mosaic" => (Effect::Mosaic, Number(&amount)),
+            "brightness" => (Effect::Brightness, Number(&amount)),
+            "ghost" => (Effect::Ghost, Number(&amount)),
+            _ => return,
+        };
+
+        if let Some(x) = sprite.effects.get_mut(&e.0) {
+            *x += e.1;
+        } else {
+            sprite.effects.insert(e.0, e.1);
+            sprite.need_to_recompile_shaders = true;
+        }
+    }
+
+    pub fn clear_effects(sprite: Rc<Mutex<Sprite>>) {
+        let mut sprite = sprite.lock().unwrap();
+
+        sprite.effects.clear();
+
+        sprite.need_to_recompile_shaders = true;
+    }
+
     /// Join two strings.
     pub fn join(a: Value, b: Value) -> Value {
         Value::String(format!("{}{}", a, b))
@@ -1426,20 +1480,20 @@ mod glium_sdl2 {
 /// An openGL vertex.
 #[derive(Copy, Clone)]
 struct Vertex {
-    position: [f32; 2],
-    tex_coords: [f32; 2],
+    a_position: [f32; 2],
+    a_texCoord: [f32; 2],
 }
 
 impl Vertex {
     fn new(position: [f32; 2], tex_coords: [f32; 2]) -> Self {
         Self {
-            position,
-            tex_coords,
+            a_position: position,
+            a_texCoord: tex_coords,
         }
     }
 }
 
-implement_vertex!(Vertex, position, tex_coords);
+implement_vertex!(Vertex, a_position, a_texCoord);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum RotationStyle {
@@ -1894,6 +1948,8 @@ impl SpriteBuilder {
             uuid: Uuid::new_v4(),
             to_be_deleted: false,
             layer: self.layer,
+            effects: HashMap::new(),
+            need_to_recompile_shaders: false,
         }
     }
 
@@ -2003,6 +2059,10 @@ pub struct Sprite {
     /// The current layer of the sprite. Sprites with higher layers are
     /// displayed on top of sprites with lower layers.
     layer: u32,
+
+    /// The sprite effects
+    effects: HashMap<Effect, f32>,
+    need_to_recompile_shaders: bool,
 }
 
 impl Sprite {
@@ -2046,6 +2106,8 @@ impl Sprite {
             uuid: Uuid::new_v4(),
             to_be_deleted: self.to_be_deleted,
             layer: self.layer,
+            effects: self.effects.clone(),
+            need_to_recompile_shaders: self.need_to_recompile_shaders,
         }
     }
 
@@ -2055,6 +2117,28 @@ impl Sprite {
     /// Formula from <https://math.stackexchange.com/questions/1589793/a-formula-to-convert-a-counter-clockwise-angle-to-clockwise-angle-with-an-offset>
     fn get_rendered_direction(&self) -> f32 {
         (-self.direction + 90.0).rem_euclid(360.0)
+    }
+
+    fn recompile_shaders(&mut self, window: &SDL2Facade) {
+        let mut defines = self
+            .effects
+            .iter()
+            .map(|x| x.0.define_string())
+            .collect::<Vec<_>>();
+
+        defines.push(String::from("#define DRAW_MODE_default"));
+
+        let define_string = format!("#version 140\n{}", defines.join("\n"));
+
+        for costume in &mut self.costumes {
+            costume.program = glium::Program::from_source(
+                window,
+                &format!("{}\n{}", define_string, Program::get_vertex_shader()),
+                &format!("{}\n{}", define_string, Program::get_fragment_shader()),
+                None,
+            )
+            .unwrap();
+        }
     }
 }
 
@@ -2120,8 +2204,8 @@ impl Costume {
 
         let program = glium::Program::from_source(
             window,
-            Program::get_vertex_shader(),
-            Program::get_fragment_shader(),
+            &*format!("#version 140\n{}", Program::get_vertex_shader()),
+            &*format!("#version 140\n{}", Program::get_fragment_shader()),
             None,
         )
         .unwrap();
@@ -2139,11 +2223,35 @@ impl Costume {
         })
     }
 
-    fn draw(&self, target: &mut glium::Frame, transform: [[f32; 4]; 4]) {
-        let uniforms = uniform! {
-            matrix: transform,
-            tex: &self.texture
-        };
+    fn draw(
+        &self,
+        target: &mut glium::Frame,
+        transform: [[f32; 4]; 4],
+        effects: &HashMap<Effect, f32>,
+    ) {
+        let mut uniforms = DynamicUniforms::new();
+        uniforms.add("u_modelMatrix", &transform);
+        let binding = Program::identity_matrix();
+        uniforms.add("u_projectionMatrix", &binding);
+        uniforms.add("u_skin", &self.texture);
+
+        let effect_uniform_names: Vec<_> = effects.iter().map(|x| x.0.uniforms()).collect();
+        let values: Vec<_> = effects.iter().map(|x| x.1).collect();
+        let calc_values: Vec<_> = values
+            .iter()
+            .zip(effect_uniform_names)
+            .map(|(val, (name, f))| (name, f(**val)))
+            .collect();
+
+        for (name, val) in &calc_values {
+            uniforms.add(name, val);
+        }
+
+        // let uniforms = uniform! {
+        //     u_modelMatrix: transform,
+        //     u_projectionMatrix: Program::identity_matrix(),
+        //     u_skin: &self.texture,
+        // };
 
         target
             .draw(
@@ -2157,6 +2265,56 @@ impl Costume {
                 },
             )
             .unwrap();
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Effect {
+    Color,
+    Fisheye,
+    Whirl,
+    Pixelate,
+    Brightness,
+    Ghost,
+    Mosaic,
+}
+
+impl Effect {
+    fn define_string(&self) -> String {
+        String::from(match self {
+            Effect::Color => "#define ENABLE_color",
+            Effect::Fisheye => "#define ENABLE_fisheye",
+            Effect::Whirl => "#define ENABLE_whirl",
+            Effect::Pixelate => "#define ENABLE_pixelate",
+            Effect::Brightness => "#define ENABLE_brightness",
+            Effect::Ghost => "#define ENABLE_ghost",
+            Effect::Mosaic => "#define ENABLE_mosaic",
+        })
+    }
+
+    fn uniforms(&self) -> (&str, Box<dyn Fn(f32) -> f32>) {
+        match self {
+            Effect::Color => ("u_color", Box::new(|x| (x / 200.0) % 1.0)),
+            Effect::Fisheye => ("u_fisheye", Box::new(|x| 0f32.max((x + 100.0) / 100.0))),
+            Effect::Whirl => ("u_whirl", Box::new(|x| -x * PI / 180.0)),
+            Effect::Pixelate => ("u_pixelate", Box::new(|x| x.abs() / 10.0)),
+            Effect::Brightness => (
+                "u_brightness",
+                Box::new(|x| -100f32.max(x.min(100.0)) / 100.0),
+            ),
+            Effect::Ghost => (
+                "u_ghost",
+                Box::new(|x| 1.0 - (0f32.max(x.min(100.0)) / 100.0)),
+            ),
+            Effect::Mosaic => (
+                "u_mosaic",
+                Box::new(|x| {
+                    let x = ((x.abs() + 10.0) / 10.0).round();
+
+                    1f32.max(x.min(512.0))
+                }),
+            ),
+        }
     }
 }
 
@@ -2487,7 +2645,7 @@ impl<'a> Program<'a> {
             [0.0, 0.0, 0.0, 1.0f32],
         ];
 
-        stage.costumes[stage.costume].draw(&mut target, transform);
+        stage.costumes[stage.costume].draw(&mut target, transform, &HashMap::new());
 
         for stamp in &stage.stamps {
             let transform = [
@@ -2503,11 +2661,16 @@ impl<'a> Program<'a> {
             ];
 
             let stamp_sprite = stamp.sprite.lock().unwrap();
-            stamp_sprite.costumes[stamp.costume].draw(&mut target, transform);
+            stamp_sprite.costumes[stamp.costume].draw(&mut target, transform, &HashMap::new());
         }
 
         for sprite in stage.sprites.clone() {
-            let sprite = sprite.lock().unwrap();
+            let mut sprite = sprite.lock().unwrap();
+
+            if sprite.need_to_recompile_shaders {
+                sprite.recompile_shaders(self.window);
+                sprite.need_to_recompile_shaders = false;
+            }
 
             if !sprite.visible {
                 continue;
@@ -2535,7 +2698,7 @@ impl<'a> Program<'a> {
                 ],
             ];
 
-            sprite.costumes[sprite.costume].draw(&mut target, transform);
+            sprite.costumes[sprite.costume].draw(&mut target, transform, &sprite.effects);
         }
 
         target.finish().unwrap();
@@ -2606,38 +2769,341 @@ impl<'a> Program<'a> {
         ]
     }
 
+    fn identity_matrix() -> [[f32; 4]; 4] {
+        [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    }
+
     fn get_vertex_shader() -> &'static str {
-        r"
-        #version 140
+        r#"
 
-        in vec2 position;
-        in vec2 tex_coords;
-        out vec2 v_tex_coords;
+#ifdef DRAW_MODE_line
+    uniform vec2 u_stageSize;
+    uniform float u_lineThickness;
+    uniform float u_lineLength;
+    // The X and Y components of u_penPoints hold the first pen point. The Z and W components hold the difference between
+    // the second pen point and the first. This is done because calculating the difference in the shader leads to floating-
+    // point error when both points have large-ish coordinates.
+    uniform vec4 u_penPoints;
 
-        uniform mat4 matrix;
+    // Add this to divisors to prevent division by 0, which results in NaNs propagating through calculations.
+    // Smaller values can cause problems on some mobile devices.
+    const float epsilon = 1e-3;
+#endif
 
-        void main(){
-            v_tex_coords = tex_coords;
-            gl_Position = matrix * vec4(position, 0.0, 1.0);
-        }"
+#if !(defined(DRAW_MODE_line) || defined(DRAW_MODE_background))
+    uniform mat4 u_projectionMatrix;
+    uniform mat4 u_modelMatrix;
+    in vec2 a_texCoord;
+#endif
+
+in vec2 a_position;
+
+out vec2 v_texCoord;
+
+void main() {
+	#ifdef DRAW_MODE_line
+        // Calculate a rotated ("tight") bounding box around the two pen points.
+        // Yes, we're doing this 6 times (once per vertex), but on actual GPU hardware,
+        // it's still faster than doing it in JS combined with the cost of uniformMatrix4fv.
+
+        // Expand line bounds by sqrt(2) / 2 each side-- this ensures that all antialiased pixels
+        // fall within the quad, even at a 45-degree diagonal
+        vec2 position = a_position;
+        float expandedRadius = (u_lineThickness * 0.5) + 1.4142135623730951;
+
+        // The X coordinate increases along the length of the line. It's 0 at the center of the origin point
+        // and is in pixel-space (so at n pixels along the line, its value is n).
+        v_texCoord.x = mix(0.0, u_lineLength + (expandedRadius * 2.0), a_position.x) - expandedRadius;
+        // The Y coordinate is perpendicular to the line. It's also in pixel-space.
+        v_texCoord.y = ((a_position.y - 0.5) * expandedRadius) + 0.5;
+
+        position.x *= u_lineLength + (2.0 * expandedRadius);
+        position.y *= 2.0 * expandedRadius;
+
+        // 1. Center around first pen point
+        position -= expandedRadius;
+
+        // 2. Rotate quad to line angle
+        vec2 pointDiff = u_penPoints.zw;
+        // Ensure line has a nonzero length so it's rendered properly
+        // As long as either component is nonzero, the line length will be nonzero
+        // If the line is zero-length, give it a bit of horizontal length
+        pointDiff.x = (abs(pointDiff.x) < epsilon && abs(pointDiff.y) < epsilon) ? epsilon : pointDiff.x;
+        // The `normalized` vector holds rotational values equivalent to sine/cosine
+        // We're applying the standard rotation matrix formula to the position to rotate the quad to the line angle
+        // pointDiff can hold large values so we must divide by u_lineLength instead of calling GLSL's normalize function:
+        // https://asawicki.info/news_1596_watch_out_for_reduced_precision_normalizelength_in_opengl_es
+        vec2 normalized = pointDiff / max(u_lineLength, epsilon);
+        position = mat2(normalized.x, normalized.y, -normalized.y, normalized.x) * position;
+
+        // 3. Translate quad
+        position += u_penPoints.xy;
+
+        // 4. Apply view transform
+        position *= 2.0 / u_stageSize;
+        gl_Position = vec4(position, 0, 1);
+	#elif defined(DRAW_MODE_background)
+        gl_Position = vec4(a_position * 2.0, 0, 1);
+	#else
+        gl_Position = u_projectionMatrix * u_modelMatrix * vec4(a_position, 0, 1);
+        v_texCoord = a_texCoord;
+	#endif
+}
+"#
     }
 
     fn get_fragment_shader() -> &'static str {
-        r"
-        #version 140
-        in vec2 v_tex_coords;
-        out vec4 color;
+        r#"
 
-        uniform sampler2D tex;
+#ifdef DRAW_MODE_silhouette
+    uniform vec4 u_silhouetteColor;
+#else // DRAW_MODE_silhouette
+    # ifdef ENABLE_color
+        uniform float u_color;
+    # endif // ENABLE_color
+    # ifdef ENABLE_brightness
+        uniform float u_brightness;
+    # endif // ENABLE_brightness
+#endif // DRAW_MODE_silhouette
 
-        void main() {
-            color = texture(tex, v_tex_coords);
-            // if (color.w < 1){
-            //     color = vec4(1,0,0,1);
-            // }else{
-            //     color = vec4(0,1,0,1);
-            // }
-        }"
+#ifdef DRAW_MODE_colorMask
+    uniform vec3 u_colorMask;
+    uniform float u_colorMaskTolerance;
+#endif // DRAW_MODE_colorMask
+
+#ifdef ENABLE_fisheye
+    uniform float u_fisheye;
+#endif // ENABLE_fisheye
+#ifdef ENABLE_whirl
+    uniform float u_whirl;
+#endif // ENABLE_whirl
+#ifdef ENABLE_pixelate
+    uniform float u_pixelate;
+    uniform vec2 u_skinSize;
+#endif // ENABLE_pixelate
+#ifdef ENABLE_mosaic
+    uniform float u_mosaic;
+#endif // ENABLE_mosaic
+#ifdef ENABLE_ghost
+    uniform float u_ghost;
+#endif // ENABLE_ghost
+
+#ifdef DRAW_MODE_line
+    uniform vec4 u_lineColor;
+    uniform float u_lineThickness;
+    uniform float u_lineLength;
+#endif // DRAW_MODE_line
+
+#ifdef DRAW_MODE_background
+    uniform vec4 u_backgroundColor;
+#endif // DRAW_MODE_background
+
+uniform sampler2D u_skin;
+
+#ifndef DRAW_MODE_background
+    in vec2 v_texCoord;
+#endif
+
+// Add this to divisors to prevent division by 0, which results in NaNs propagating through calculations.
+// Smaller values can cause problems on some mobile devices.
+const float epsilon = 1e-3;
+
+#if !defined(DRAW_MODE_silhouette) && (defined(ENABLE_color))
+    // Branchless color conversions based on code from:
+    // http://www.chilliant.com/rgb2hsv.html by Ian Taylor
+    // Based in part on work by Sam Hocevar and Emil Persson
+    // See also: https://en.wikipedia.org/wiki/HSL_and_HSV#Formal_derivation
+
+
+    // Convert an RGB color to Hue, Saturation, and Value.
+    // All components of input and output are expected to be in the [0,1] range.
+    vec3 convertRGB2HSV(vec3 rgb) {
+        // Hue calculation has 3 cases, depending on which RGB component is largest, and one of those cases involves a "mod"
+        // operation. In order to avoid that "mod" we split the M==R case in two: one for G<B and one for B>G. The B>G case
+        // will be calculated in the negative and fed through abs() in the hue calculation at the end.
+        // See also: https://en.wikipedia.org/wiki/HSL_and_HSV#Hue_and_chroma
+        const vec4 hueOffsets = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+
+        // temp1.xy = sort B & G (largest first)
+        // temp1.z = the hue offset we'll use if it turns out that R is the largest component (M==R)
+        // temp1.w = the hue offset we'll use if it turns out that R is not the largest component (M==G or M==B)
+        vec4 temp1 = rgb.b > rgb.g ? vec4(rgb.bg, hueOffsets.wz) : vec4(rgb.gb, hueOffsets.xy);
+
+        // temp2.x = the largest component of RGB ("M" / "Max")
+        // temp2.yw = the smaller components of RGB, ordered for the hue calculation (not necessarily sorted by magnitude!)
+        // temp2.z = the hue offset we'll use in the hue calculation
+        vec4 temp2 = rgb.r > temp1.x ? vec4(rgb.r, temp1.yzx) : vec4(temp1.xyw, rgb.r);
+
+        // m = the smallest component of RGB ("min")
+        float m = min(temp2.y, temp2.w);
+
+        // Chroma = M - m
+        float C = temp2.x - m;
+
+        // Value = M
+        float V = temp2.x;
+
+        return vec3(
+            abs(temp2.z + (temp2.w - temp2.y) / (6.0 * C + epsilon)), // Hue
+            C / (temp2.x + epsilon), // Saturation
+            V); // Value
+    }
+
+    vec3 convertHue2RGB(float hue) {
+        float r = abs(hue * 6.0 - 3.0) - 1.0;
+        float g = 2.0 - abs(hue * 6.0 - 2.0);
+        float b = 2.0 - abs(hue * 6.0 - 4.0);
+        return clamp(vec3(r, g, b), 0.0, 1.0);
+    }
+
+    vec3 convertHSV2RGB(vec3 hsv) {
+        vec3 rgb = convertHue2RGB(hsv.x);
+        float c = hsv.z * hsv.y;
+        return rgb * c + hsv.z - c;
+    }
+#endif // !defined(DRAW_MODE_silhouette) && (defined(ENABLE_color))
+
+const vec2 kCenter = vec2(0.5, 0.5);
+
+void main() {
+	#if !(defined(DRAW_MODE_line) || defined(DRAW_MODE_background))
+        vec2 texcoord0 = v_texCoord;
+
+        #ifdef ENABLE_mosaic
+            texcoord0 = fract(u_mosaic * texcoord0);
+        #endif // ENABLE_mosaic
+
+        #ifdef ENABLE_pixelate
+            {
+                // TODO: clean up "pixel" edges
+                vec2 pixelTexelSize = u_skinSize / u_pixelate;
+                texcoord0 = (floor(texcoord0 * pixelTexelSize) + kCenter) / pixelTexelSize;
+            }
+        #endif // ENABLE_pixelate
+
+        #ifdef ENABLE_whirl
+            {
+                const float kRadius = 0.5;
+                vec2 offset = texcoord0 - kCenter;
+                float offsetMagnitude = length(offset);
+                float whirlFactor = max(1.0 - (offsetMagnitude / kRadius), 0.0);
+                float whirlActual = u_whirl * whirlFactor * whirlFactor;
+                float sinWhirl = sin(whirlActual);
+                float cosWhirl = cos(whirlActual);
+                mat2 rotationMatrix = mat2(
+                    cosWhirl, -sinWhirl,
+                    sinWhirl, cosWhirl
+                );
+
+                texcoord0 = rotationMatrix * offset + kCenter;
+            }
+        #endif // ENABLE_whirl
+
+        #ifdef ENABLE_fisheye
+            {
+                vec2 vec = (texcoord0 - kCenter) / kCenter;
+                float vecLength = length(vec);
+                float r = pow(min(vecLength, 1.0), u_fisheye) * max(1.0, vecLength);
+                vec2 unit = vec / vecLength;
+
+                texcoord0 = kCenter + r * unit * kCenter;
+            }
+        #endif // ENABLE_fisheye
+
+        gl_FragColor = texture2D(u_skin, texcoord0);
+
+        #if defined(ENABLE_color) || defined(ENABLE_brightness)
+            // Divide premultiplied alpha values for proper color processing
+            // Add epsilon to avoid dividing by 0 for fully transparent pixels
+            gl_FragColor.rgb = clamp(gl_FragColor.rgb / (gl_FragColor.a + epsilon), 0.0, 1.0);
+
+            #ifdef ENABLE_color
+                {
+                    vec3 hsv = convertRGB2HSV(gl_FragColor.xyz);
+
+                    // this code forces grayscale values to be slightly saturated
+                    // so that some slight change of hue will be visible
+                    const float minLightness = 0.11 / 2.0;
+                    const float minSaturation = 0.09;
+                    if (hsv.z < minLightness) hsv = vec3(0.0, 1.0, minLightness);
+                    else if (hsv.y < minSaturation) hsv = vec3(0.0, minSaturation, hsv.z);
+
+                    hsv.x = mod(hsv.x + u_color, 1.0);
+                    if (hsv.x < 0.0) hsv.x += 1.0;
+
+                    gl_FragColor.rgb = convertHSV2RGB(hsv);
+                }
+            #endif // ENABLE_color
+
+            #ifdef ENABLE_brightness
+                gl_FragColor.rgb = clamp(gl_FragColor.rgb + vec3(u_brightness), vec3(0), vec3(1));
+            #endif // ENABLE_brightness
+
+            // Re-multiply color values
+            gl_FragColor.rgb *= gl_FragColor.a + epsilon;
+
+        #endif // defined(ENABLE_color) || defined(ENABLE_brightness)
+
+        #ifdef ENABLE_ghost
+            gl_FragColor *= u_ghost;
+        #endif // ENABLE_ghost
+
+        #ifdef DRAW_MODE_silhouette
+            // Discard fully transparent pixels for stencil test
+            if (gl_FragColor.a == 0.0) {
+                discard;
+            }
+            // switch to u_silhouetteColor only AFTER the alpha test
+            gl_FragColor = u_silhouetteColor;
+        #else // DRAW_MODE_silhouette
+
+            #ifdef DRAW_MODE_colorMask
+                vec3 maskDistance = abs(gl_FragColor.rgb - u_colorMask);
+                vec3 colorMaskTolerance = vec3(u_colorMaskTolerance, u_colorMaskTolerance, u_colorMaskTolerance);
+                if (any(greaterThan(maskDistance, colorMaskTolerance)))
+                {
+                    discard;
+                }
+            #endif // DRAW_MODE_colorMask
+        #endif // DRAW_MODE_silhouette
+
+        #ifdef DRAW_MODE_straightAlpha
+            // Un-premultiply alpha.
+            gl_FragColor.rgb /= gl_FragColor.a + epsilon;
+        #endif
+
+	#endif // !(defined(DRAW_MODE_line) || defined(DRAW_MODE_background))
+
+	#ifdef DRAW_MODE_line
+        // Maaaaagic antialiased-line-with-round-caps shader.
+
+        // "along-the-lineness". This increases parallel to the line.
+        // It goes from negative before the start point, to 0.5 through the start to the end, then ramps up again
+        // past the end point.
+        float d = ((v_texCoord.x - clamp(v_texCoord.x, 0.0, u_lineLength)) * 0.5) + 0.5;
+
+        // Distance from (0.5, 0.5) to (d, the perpendicular coordinate). When we're in the middle of the line,
+        // d will be 0.5, so the distance will be 0 at points close to the line and will grow at points further from it.
+        // For the "caps", d will ramp down/up, giving us rounding.
+        // See https://www.youtube.com/watch?v=PMltMdi1Wzg for a rough outline of the technique used to round the lines.
+        float line = distance(vec2(0.5), vec2(d, v_texCoord.y)) * 2.0;
+        // Expand out the line by its thickness.
+        line -= ((u_lineThickness - 1.0) * 0.5);
+        // Because "distance to the center of the line" decreases the closer we get to the line, but we want more opacity
+        // the closer we are to the line, invert it.
+        gl_FragColor = u_lineColor * clamp(1.0 - line, 0.0, 1.0);
+	#endif // DRAW_MODE_line
+
+	#ifdef DRAW_MODE_background
+        gl_FragColor = u_backgroundColor;
+	#endif
+}
+"#
     }
 }
 

@@ -206,6 +206,18 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
         "looks_goforwardbackwardlayers",
         "go_forward_backwards_layers(sprite.clone().unwrap(),stage.clone(),FORWARD_BACKWARD,NUM);",
     );
+    blocks.insert(
+        "looks_seteffectto",
+        "set_effect(sprite.clone().unwrap(), EFFECT, VALUE);",
+    );
+    blocks.insert(
+        "looks_changeeffectby",
+        "change_effect(sprite.clone().unwrap(), EFFECT, CHANGE);",
+    );
+    blocks.insert(
+        "looks_cleargraphiceffects",
+        "clear_effects(sprite.clone().unwrap());",
+    );
     blocks.insert("event_whenflagclicked", "");
     // blocks.insert(
     //     "data_variable",
