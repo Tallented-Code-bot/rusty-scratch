@@ -2195,8 +2195,8 @@ impl Costume {
         let texture = get_texture_from_path(window, path.clone(), scale)?;
 
         let (width, height) = texture.dimensions();
-        let top_left = Program::scratch_to_opengl([-(width as f32 / 2.0), height as f32 / 2.0]);
-        let bottom_right = Program::scratch_to_opengl([width as f32 / 2.0, -(height as f32 / 2.0)]);
+        let top_left = [-(width as f32 / 2.0), height as f32 / 2.0];
+        let bottom_right = [width as f32 / 2.0, -(height as f32 / 2.0)];
 
         let vertices_vec = Program::rect(top_left, bottom_right);
         let vertices = glium::VertexBuffer::new(window, &vertices_vec).unwrap();
@@ -2231,7 +2231,7 @@ impl Costume {
     ) {
         let mut uniforms = DynamicUniforms::new();
         uniforms.add("u_modelMatrix", &transform);
-        let binding = Program::identity_matrix();
+        let binding = Program::ortho_matrix();
         uniforms.add("u_projectionMatrix", &binding);
         uniforms.add("u_skin", &self.texture);
 
@@ -2691,10 +2691,9 @@ impl<'a> Program<'a> {
                 ],
                 [0.0, 0.0, 1.0, 0.0],
                 [
-                    sprite.x / f32::from(SCRATCH_HALF_WIDTH),
-                    sprite.y / f32::from(SCRATCH_HALF_HEIGHT),
-                    0.0,
-                    1.0f32,
+                    sprite.x, // f32::from(SCRATCH_HALF_WIDTH),
+                    sprite.y, // f32::from(SCRATCH_HALF_HEIGHT),
+                    0.0, 1.0f32,
                 ],
             ];
 
@@ -2761,20 +2760,34 @@ impl<'a> Program<'a> {
         ]
     }
 
-    // Convert scratch coordinates to openGL coordinates
-    fn scratch_to_opengl(coords: [f32; 2]) -> [f32; 2] {
-        [
-            coords[0] / f32::from(SCRATCH_HALF_WIDTH),
-            coords[1] / f32::from(SCRATCH_HALF_HEIGHT),
-        ]
-    }
-
     fn identity_matrix() -> [[f32; 4]; 4] {
         [
             [1.0, 0.0, 0.0, 0.0],
             [0.0, 1.0, 0.0, 0.0],
             [0.0, 0.0, 1.0, 0.0],
             [0.0, 0.0, 0.0, 1.0],
+        ]
+    }
+
+    fn ortho_matrix() -> [[f32; 4]; 4] {
+        let left = -f32::from(SCRATCH_HALF_WIDTH);
+        let right = f32::from(SCRATCH_HALF_WIDTH);
+        let top = f32::from(SCRATCH_HALF_HEIGHT);
+        let bottom = -f32::from(SCRATCH_HALF_HEIGHT);
+
+        let near = -1.0;
+        let far = 1.0;
+
+        [
+            [2.0 / (right - left), 0.0, 0.0, 0.0],
+            [0.0, 2.0 / (top - bottom), 0.0, 0.0],
+            [0.0, 0.0, 2.0 / (near - far), 0.0],
+            [
+                (right + left) / (left - right),
+                (top + bottom) / (bottom - top),
+                (far + near) / (near - far),
+                1.0,
+            ],
         ]
     }
 
