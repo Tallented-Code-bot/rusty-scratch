@@ -141,7 +141,10 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
         "control_if",
         "if <Value as Into<bool>>::into(Value::from(CONDITION)) {SUBSTACK}",
     );
-    blocks.insert("control_if_else", "if CONDITION {SUBSTACK}else{SUBSTACK2}");
+    blocks.insert(
+        "control_if_else",
+        "if <Value as Into<bool>>::into(Value::from(CONDITION)) {SUBSTACK}else{SUBSTACK2}",
+    );
     // blocks.insert(
     //     "control_wait_until",
     //     "wait_until(Value::from(CONDITION)).await;",
@@ -296,6 +299,9 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
         "sensing_keypressed",
         "key_pressed(stage.clone(),KEY_OPTION)",
     );
+    blocks.insert("sensing_mousex", "mousex(stage.clone())");
+    blocks.insert("sensing_mousey", "mousey(stage.clone())");
+    blocks.insert("sensing_mousedown", "mouse_down(stage.clone())");
     blocks.insert("sensing_askandwait", "ask(stage.clone(),QUESTION);");
     blocks.insert("sensing_answer", "answer(stage.clone())");
     blocks.insert("sensing_username", "username()");
@@ -425,6 +431,26 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                     match event{{
                         Event::Quit {{..}} => {{break 'running;}},
+                        Event::KeyDown {{keycode: Some(key), ..}} => {{
+                            let mut s = Stage.lock().unwrap();
+                            s.keyboard.press_key(key);
+                        }},
+                        Event::KeyUp {{keycode: Some(key), ..}} => {{
+                            let mut s = Stage.lock().unwrap();
+                            s.keyboard.release_key(key)
+                        }},
+                        Event::MouseMotion{{mousestate: m, x, y, ..}} => {{
+                            let mut s = Stage.lock().unwrap();
+                            s.mouse.set_sdl_position([x as f64, y as f64], &window);
+                        }},
+                        Event::MouseButtonDown{{mouse_btn: m, ..}} => {{
+                            let mut s = Stage.lock().unwrap();
+                            s.mouse.set_button_down(m);
+                        }}
+                        Event::MouseButtonUp{{mouse_btn: m, ..}} => {{
+                            let mut s = Stage.lock().unwrap();
+                            s.mouse.set_button_up(m);
+                        }}
                         _ => ()
                     }}
                 }}

@@ -24,9 +24,12 @@ use piston::event_loop::{EventLoop, EventSettings, Events};
 use piston::input::{Button, Key, RenderArgs, RenderEvent, UpdateArgs, UpdateEvent};
 use piston::window::WindowSettings;
 use piston::Window;
-use piston::{MouseButton, MouseCursorEvent, PressEvent, ReleaseEvent, Size as WindowSize};
+use piston::{MouseCursorEvent, PressEvent, ReleaseEvent, Size as WindowSize};
 use piston_window::PistonWindow;
 use rand::Rng;
+use sdl2::event::WindowEvent;
+use sdl2::keyboard::Keycode;
+use sdl2::mouse::MouseButton;
 use sdl2::pixels::Color;
 use std::collections::VecDeque;
 use std::fmt::{Debug, Display};
@@ -1088,6 +1091,24 @@ mod blocks {
         let mut stage = stage.lock().unwrap();
         let to_return = stage.keyboard.get_key_down(key);
         Value::Bool(to_return)
+    }
+
+    pub fn mousex(stage: Rc<Mutex<Stage>>) -> Value {
+        let stage = stage.lock().unwrap();
+
+        stage.mouse.x()
+    }
+
+    pub fn mousey(stage: Rc<Mutex<Stage>>) -> Value {
+        let stage = stage.lock().unwrap();
+
+        stage.mouse.y()
+    }
+
+    pub fn mouse_down(stage: Rc<Mutex<Stage>>) -> Value {
+        let stage = stage.lock().unwrap();
+
+        Value::Bool(stage.mouse.mouse_down())
     }
 
     pub fn ask(stage: Rc<Mutex<Stage>>, string: Value) {
@@ -3366,7 +3387,7 @@ pub enum WaitType {
 
 #[derive(Debug, Clone)]
 pub struct Keyboard {
-    keys_pressed: HashSet<Key>,
+    keys_pressed: HashSet<Keycode>,
     key_name: HashMap<&'static str, &'static str>,
 }
 
@@ -3385,11 +3406,11 @@ impl Keyboard {
         }
     }
 
-    fn press_key(&mut self, key: Key) {
+    fn press_key(&mut self, key: Keycode) {
         self.keys_pressed.insert(key);
     }
 
-    fn release_key(&mut self, key: Key) {
+    fn release_key(&mut self, key: Keycode) {
         self.keys_pressed.remove(&key);
     }
 
@@ -3431,83 +3452,82 @@ impl Keyboard {
         keyArg.to_uppercase()
     }
 
-    fn scratch_key_to_Key(&self, arg: String) -> Key {
-        match &*arg {
-            "A" => Key::A,
-            "B" => Key::B,
-            "C" => Key::C,
-            "D" => Key::D,
-            "E" => Key::E,
-            "F" => Key::F,
-            "G" => Key::G,
-            "H" => Key::H,
-            "I" => Key::I,
-            "J" => Key::J,
-            "K" => Key::K,
-            "L" => Key::L,
-            "M" => Key::M,
-            "N" => Key::N,
-            "O" => Key::O,
-            "P" => Key::P,
-            "Q" => Key::Q,
-            "R" => Key::R,
-            "S" => Key::S,
-            "T" => Key::T,
-            "U" => Key::U,
-            "V" => Key::V,
-            "W" => Key::W,
-            "X" => Key::X,
-            "Y" => Key::Y,
-            "Z" => Key::Z,
-            "space" => Key::Space,
-            "left arrow" => Key::Left,
-            "right arrow" => Key::Right,
-            "up arrow" => Key::Up,
-            "down arrow" => Key::Down,
-            "SPACE" => Key::Space,
-            "LEFT" => Key::Left,
-            "RIGHT" => Key::Right,
-            "UP" => Key::Up,
-            "DOWN" => Key::Down,
-            "0" => Key::D0,
-            "1" => Key::D1,
-            "2" => Key::D2,
-            "3" => Key::D3,
-            "4" => Key::D4,
-            "5" => Key::D5,
-            "6" => Key::D6,
-            "7" => Key::D7,
-            "8" => Key::D8,
-            "9" => Key::D9,
-            "!" => Key::Exclaim,
-            "@" => Key::At,
-            "#" => Key::Hash,
-            "$" => Key::Dollar,
-            "%" => Key::Percent,
-            "^" => Key::Caret,
-            "&" => Key::Ampersand,
-            "*" => Key::Asterisk,
-            "(" => Key::LeftParen,
-            ")" => Key::RightParen,
-            "`" => Key::Backquote,
-            "-" => Key::Minus,
-            "+" => Key::Plus,
-            "_" => Key::Underscore,
-            "=" => Key::Equals,
-            "[" => Key::LeftBracket,
-            "]" => Key::RightBracket,
-            "\\" => Key::Backslash,
-            ";" => Key::Semicolon,
-            ":" => Key::Colon,
-            "'" => Key::Quote,
-            "\"" => Key::Quotedbl,
-            "/" => Key::Slash,
-            "?" => Key::Question,
-            "." => Key::Period,
-            "," => Key::Comma,
-            // "<"=>Key::Angle
-            _ => Key::Unknown,
-        }
+    fn scratch_key_to_Key(&self, arg: String) -> Option<Keycode> {
+        Some(match &*arg {
+            "A" => Keycode::A,
+            "B" => Keycode::B,
+            "C" => Keycode::C,
+            "D" => Keycode::D,
+            "E" => Keycode::E,
+            "F" => Keycode::F,
+            "G" => Keycode::G,
+            "H" => Keycode::H,
+            "I" => Keycode::I,
+            "J" => Keycode::J,
+            "K" => Keycode::K,
+            "L" => Keycode::L,
+            "M" => Keycode::M,
+            "N" => Keycode::N,
+            "O" => Keycode::O,
+            "P" => Keycode::P,
+            "Q" => Keycode::Q,
+            "R" => Keycode::R,
+            "S" => Keycode::S,
+            "T" => Keycode::T,
+            "U" => Keycode::U,
+            "V" => Keycode::V,
+            "W" => Keycode::W,
+            "X" => Keycode::X,
+            "Y" => Keycode::Y,
+            "Z" => Keycode::Z,
+            "space" => Keycode::Space,
+            "left arrow" => Keycode::Left,
+            "right arrow" => Keycode::Right,
+            "up arrow" => Keycode::Up,
+            "down arrow" => Keycode::Down,
+            "SPACE" => Keycode::Space,
+            "LEFT" => Keycode::Left,
+            "RIGHT" => Keycode::Right,
+            "UP" => Keycode::Up,
+            "DOWN" => Keycode::Down,
+            "0" => Keycode::Num0,
+            "1" => Keycode::Num1,
+            "2" => Keycode::Num2,
+            "3" => Keycode::Num3,
+            "4" => Keycode::Num4,
+            "5" => Keycode::Num5,
+            "6" => Keycode::Num6,
+            "7" => Keycode::Num7,
+            "8" => Keycode::Num8,
+            "9" => Keycode::Num9,
+            "!" => Keycode::Exclaim,
+            "@" => Keycode::At,
+            "#" => Keycode::Hash,
+            "$" => Keycode::Dollar,
+            "%" => Keycode::Percent,
+            "^" => Keycode::Caret,
+            "&" => Keycode::Ampersand,
+            "*" => Keycode::Asterisk,
+            "(" => Keycode::LeftParen,
+            ")" => Keycode::RightParen,
+            "`" => Keycode::Backquote,
+            "-" => Keycode::Minus,
+            "+" => Keycode::Plus,
+            "_" => Keycode::Underscore,
+            "=" => Keycode::Equals,
+            "[" => Keycode::LeftBracket,
+            "]" => Keycode::RightBracket,
+            "\\" => Keycode::Backslash,
+            ";" => Keycode::Semicolon,
+            ":" => Keycode::Colon,
+            "'" => Keycode::Quote,
+            "\"" => Keycode::Quotedbl,
+            "/" => Keycode::Slash,
+            "?" => Keycode::Question,
+            "." => Keycode::Period,
+            "," => Keycode::Comma,
+            _ => return None,
+        })
     }
 
     fn get_key_down(&self, arg: Value) -> bool {
@@ -3517,43 +3537,67 @@ impl Keyboard {
             }
         }
 
-        let scratchKey = self.scratch_key_to_Key(self.key_arg_to_scratch_key(arg));
-
-        self.keys_pressed.get(&scratchKey).is_some()
+        if let Some(scratchKey) = self.scratch_key_to_Key(self.key_arg_to_scratch_key(arg)) {
+            self.keys_pressed.get(&scratchKey).is_some()
+        } else {
+            false
+        }
     }
 }
 
 /// The mouse struct.
 ///
-/// This holds the position of the mouse, both in scratch coordinates and piston coordinates.
+/// This holds the position of the mouse, both in scratch coordinates and sdl coordinates.
 /// It also holds the keys that are pressed or not.
 pub struct Mouse {
     scratch_position: (f32, f32),
-    piston_position: (f32, f32),
+    sdl_position: (f32, f32),
+    buttons: Vec<MouseButton>,
 }
 
 impl Mouse {
     fn new() -> Self {
         Self {
             scratch_position: (0.0, 0.0),
-            piston_position: (0.0, 0.0),
+            sdl_position: (0.0, 0.0),
+            buttons: Vec::new(),
         }
     }
 
-    /// Set the position of the mouse, in piston coordinates.
+    /// Set the position of the mouse, in sdl coordinates.
     /// This also sets the scratch position to the correct coordinates.
-    pub fn set_piston_position(&mut self, pos: [f64; 2], size: WindowSize) {
-        self.piston_position = (pos[0] as f32, pos[1] as f32);
-        self.scratch_position = Mouse::piston2scratch((pos[0] as f32, pos[1] as f32), size);
+    pub fn set_sdl_position(&mut self, pos: [f64; 2], window: &SDL2Facade) {
+        self.sdl_position = (pos[0] as f32, pos[1] as f32);
+        self.scratch_position = Mouse::sdl2scratch((pos[0] as f32, pos[1] as f32), window);
+    }
+
+    pub fn set_button_down(&mut self, button: MouseButton) {
+        if self.buttons.iter().find(|x| **x == button).is_none() {
+            self.buttons.push(button);
+        }
+    }
+
+    pub fn set_button_up(&mut self, button: MouseButton) {
+        if let Some((i, x)) = self.buttons.iter().enumerate().find(|x| *x.1 == button) {
+            self.buttons.remove(i);
+        }
+    }
+
+    pub fn mouse_down(&self) -> bool {
+        self.buttons.contains(&MouseButton::Left)
+            || self.buttons.contains(&MouseButton::Right)
+            || self.buttons.contains(&MouseButton::Middle)
     }
 
     /// Convert piston coordinates to scratch coordinates
-    fn piston2scratch(coords: (f32, f32), size: WindowSize) -> (f32, f32) {
+    fn sdl2scratch(coords: (f32, f32), window: &SDL2Facade) -> (f32, f32) {
         let (mut x, mut y) = coords;
 
+        let (width, height) = window.window().size();
+
         // find the ratio of scratch size to actual size
-        let ratio_x: f32 = Into::<f32>::into(SCRATCH_WIDTH) / size.width as f32;
-        let ratio_y: f32 = Into::<f32>::into(SCRATCH_HEIGHT) / size.height as f32;
+        let ratio_x: f32 = Into::<f32>::into(SCRATCH_WIDTH) / width as f32;
+        let ratio_y: f32 = Into::<f32>::into(SCRATCH_HEIGHT) / height as f32;
 
         // resize the coordinates to the correct size
         x *= ratio_x;
