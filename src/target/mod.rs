@@ -9,44 +9,30 @@
 extern crate rand;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use core::task::{RawWaker, RawWakerVTable, Waker};
-use genawaiter::rc::{gen, Co};
-use genawaiter::{yield_, GeneratorState};
-use glium::uniforms::AsUniformValue;
-use glium::uniforms::DynamicUniforms;
-use glium::{implement_vertex, uniform, Frame, Surface};
+use glium::{
+    implement_vertex, uniform,
+    uniforms::{AsUniformValue, DynamicUniforms},
+    Frame, Surface,
+};
 use glium_sdl2::DisplayBuild;
-use glutin_window::GlutinWindow;
-use graphics::types::{Matrix2d, Scalar};
-use graphics::{rectangle, Context as DrawingContext, Image};
 use image::{GenericImageView, ImageBuffer, Rgba};
-use opengl_graphics::{GlGraphics, OpenGL, Texture, TextureSettings};
-use piston::event_loop::{EventLoop, EventSettings, Events};
-use piston::input::{Button, Key, RenderArgs, RenderEvent, UpdateArgs, UpdateEvent};
-use piston::window::WindowSettings;
-use piston::Window;
-use piston::{MouseCursorEvent, PressEvent, ReleaseEvent, Size as WindowSize};
-use piston_window::PistonWindow;
-use rand::Rng;
-use sdl2::event::WindowEvent;
-use sdl2::keyboard::Keycode;
-use sdl2::mouse::MouseButton;
-use sdl2::pixels::Color;
-use std::collections::VecDeque;
-use std::fmt::{Debug, Display};
-use std::fs;
-use std::hash::Hash;
-use std::io;
-use std::ops::Index;
-use std::pin::Pin;
-use std::task::{Context, Poll};
+use sdl2::{event::WindowEvent, keyboard::Keycode, mouse::MouseButton, pixels::Color};
 use std::{
     boxed::Box,
+    collections::VecDeque,
     collections::{HashMap, HashSet},
     f32::consts::PI,
+    fmt::{Debug, Display},
+    fs,
     future::{Future, IntoFuture},
+    hash::Hash,
+    io,
+    ops::Index,
     path::{Path, PathBuf},
+    pin::Pin,
     rc::Rc,
     sync::Mutex,
+    task::{Context, Poll},
     time::{Duration, Instant},
 };
 use uuid::Uuid;
@@ -3146,7 +3132,6 @@ fn get_texture_from_path(
     path: PathBuf,
     scale: f32,
 ) -> Result<glium::texture::Texture2d, &'static str> {
-    use opengl_graphics::{CreateTexture, Format, Texture, TextureSettings};
     use resvg::tiny_skia::{Pixmap, Transform};
     use resvg::usvg::{FitTo, Options, Tree};
 

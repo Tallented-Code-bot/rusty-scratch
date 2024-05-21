@@ -1208,19 +1208,12 @@ fn create_project(path: &PathBuf) -> Result<(), io::Error> {
     
     [dependencies]
     rand=\"0.8.5\"
-    genawaiter=\"0.99.1\"
-    piston = \"0.53.0\"
-    piston2d-graphics = \"0.42.0\"
-    pistoncore-glutin_window = \"0.69.0\"
-    piston2d-opengl_graphics = \"0.81.0\"
     resvg = \"0.25.0\"
     chrono = \"0.4.23\"
     uuid = {version = \"1.4.1\", features = [\"v4\",\"fast-rng\"]}
-    piston_window = \"0.120.0\"
 
     sdl2 = \"0.36\"
     glium = \"0.34\"
-    gl = \"0.14.0\"
     image = \"0.25.1\"
 
     ";
