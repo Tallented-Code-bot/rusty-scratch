@@ -127,9 +127,9 @@ mod blocks {
         sprite.direction -= toNumber(&degrees);
     }
 
-    pub fn point_in_direction(sprite: Rc<Mutex<Sprite>>, degrees: f32) {
+    pub fn point_in_direction(sprite: Rc<Mutex<Sprite>>, degrees: Value) {
         let mut sprite = sprite.lock().unwrap();
-        sprite.direction = degrees;
+        sprite.direction = Number(&degrees);
     }
 
     pub fn set_x(sprite: Rc<Mutex<Sprite>>, x: Value) {

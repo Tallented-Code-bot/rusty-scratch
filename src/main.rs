@@ -90,11 +90,11 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
     );
     blocks.insert(
         "motion_turnleft",
-        "turn_left(sprite.clone().unwrap(),DEGREESf32);",
+        "turn_left(sprite.clone().unwrap(),DEGREES);",
     );
     blocks.insert(
         "motion_turnright",
-        "turn_right(sprite.clone().unwrap(),DEGREESf32);",
+        "turn_right(sprite.clone().unwrap(),DEGREES);",
     );
     blocks.insert(
         "motion_goto",
@@ -103,7 +103,7 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
     blocks.insert("motion_gotoxy", "go_to_xy(sprite.clone().unwrap(),X,Y);");
     blocks.insert(
         "motion_pointindirection",
-        "point_in_direction(sprite.clone().unwrap(),DIRECTIONf32);",
+        "point_in_direction(sprite.clone().unwrap(),DIRECTION);",
     );
     blocks.insert(
         "motion_setrotationstyle",
