@@ -1,31 +1,28 @@
-#+TITLE: Rusty-Scratch
-#+AUTHOR: Tallented-Code-bot
  
-* Rusty-Scratch
-Rusty-Scratch is a transpiler that turns [[https://scratch.mit.edu][scratch]] projects into rust
-so that they will run faster.  It is similar to [[https://turbowarp.org/][turbowarp]].
+# Rusty-Scratch
+Rusty-Scratch is a transpiler that turns [scratch](https://scratch.mit.edu)
+projects into rust so that they will run faster. It is similar to
+[[https://turbowarp.org/][turbowarp]].
 
-** Installation
-1. Make sure rust is installed on your machine. ([[https://www.rust-lang.org/tools/install][install rust]])
+## Installation
+1. Make sure rust is installed on your machine. ([install
+   rust](https://www.rust-lang.org/tools/install))
 2. Clone the repo.
-   #+begin_src sh
-    git clone https://github.com/Tallented-Code-bot/rusty-scratch.git
-   #+end_src
+``` sh
+git clone https://github.com/Tallented-Code-bot/rusty-scratch.git
+```
 3. Build.
-   #+begin_src sh
-    cd rusty-scratch
-    cargo build
-   #+end_src
 
-* Resources
-[[https://scratch.mit.edu/discuss/topic/348714/?page=1]]
-[[https://github.com/rust-native-ui/libui-rs]]
+``` sh
+cd rusty-scratch
+cargo build
+```
 
+# Resources
 
-** Blocks
+## Blocks
 Here are all the currently implemented blocks.
 
-Note that there are currently no graphics.
 
 - [X] Move (10) steps
 - [X] turn right (15) degrees
