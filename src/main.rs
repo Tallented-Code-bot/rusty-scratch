@@ -1,6 +1,7 @@
 use crate::target::{RotationStyle, VideoState};
 use json::{self, JsonValue};
 use rand::Rng;
+use regex::Regex;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
@@ -687,6 +688,11 @@ fn get_block(
             }
         }
     }
+
+    // Replace any remaining placeholder values (eg "SUBSTACK" for empty loops)
+    // so we don't get errors.
+    let re = Regex::new("[A-Z_-]{2,}").unwrap();
+    function = re.replace_all(&function, "").to_string();
 
     // Return the completed function
     Ok(function)
