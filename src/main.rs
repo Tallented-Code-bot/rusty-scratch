@@ -212,15 +212,15 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
     );
     blocks.insert(
         "looks_seteffectto",
-        "set_effect(sprite.clone().unwrap(), EFFECT, VALUE);",
+        "set_effect(sprite.clone(), stage.clone(), EFFECT, VALUE);",
     );
     blocks.insert(
         "looks_changeeffectby",
-        "change_effect(sprite.clone().unwrap(), EFFECT, CHANGE);",
+        "change_effect(sprite.clone(), stage.clone(), EFFECT, CHANGE);",
     );
     blocks.insert(
         "looks_cleargraphiceffects",
-        "clear_effects(sprite.clone().unwrap());",
+        "clear_effects(sprite.clone(), stage.clone());",
     );
     blocks.insert("event_whenflagclicked", "");
     // blocks.insert(
@@ -691,7 +691,8 @@ fn get_block(
 
     // Replace any remaining placeholder values (eg "SUBSTACK" for empty loops)
     // so we don't get errors.
-    let re = Regex::new("[A-Z_-]{2,}").unwrap();
+    // let re = Regex::new("[A-Z_-]{2,}").unwrap();
+    let re = Regex::new("SUBSTACK").unwrap();
     function = re.replace_all(&function, "").to_string();
 
     // Return the completed function

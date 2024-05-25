@@ -877,11 +877,12 @@ mod blocks {
         println!("{}", speech);
     }
 
-    pub fn set_effect(sprite: Rc<Mutex<Sprite>>, effect: Value, amount: Value) {
-        let mut sprite = sprite.lock().unwrap();
-
-        let effects_len = sprite.effects.len();
-
+    pub fn set_effect(
+        sprite: Option<Rc<Mutex<Sprite>>>,
+        stage: Rc<Mutex<Stage>>,
+        effect: Value,
+        amount: Value,
+    ) {
         let e = match &*String(&effect).to_lowercase() {
             "color" => (Effect::Color, Number(&amount)),
             "fisheye" => (Effect::Fisheye, Number(&amount)),
@@ -893,40 +894,74 @@ mod blocks {
             _ => return,
         };
 
-        if sprite.effects.insert(e.0, e.1).is_none() {
-            // if this is a new effect, we need to recompile the shaders.
-            sprite.need_to_recompile_shaders = true;
-        }
-    }
+        if let Some(sprite) = sprite {
+            let mut sprite = sprite.lock().unwrap();
 
-    pub fn change_effect(sprite: Rc<Mutex<Sprite>>, effect: Value, amount: Value) {
-        let mut sprite = sprite.lock().unwrap();
+            let effects_len = sprite.effects.len();
 
-        let e = match &*String(&effect).to_lowercase() {
-            "color" => (Effect::Color, Number(&amount)),
-            "fisheye" => (Effect::Fisheye, Number(&amount)),
-            "whirl" => (Effect::Whirl, Number(&amount)),
-            "pixelate" => (Effect::Pixelate, Number(&amount)),
-            "mosaic" => (Effect::Mosaic, Number(&amount)),
-            "brightness" => (Effect::Brightness, Number(&amount)),
-            "ghost" => (Effect::Ghost, Number(&amount)),
-            _ => return,
-        };
-
-        if let Some(x) = sprite.effects.get_mut(&e.0) {
-            *x += e.1;
+            if sprite.effects.insert(e.0, e.1).is_none() {
+                // if this is a new effect, we need to recompile the shaders.
+                sprite.need_to_recompile_shaders = true;
+            }
         } else {
-            sprite.effects.insert(e.0, e.1);
-            sprite.need_to_recompile_shaders = true;
+            let mut stage = stage.lock().unwrap();
+
+            let effects_len = stage.effects.len();
+
+            if stage.effects.insert(e.0, e.1).is_none() {
+                stage.need_to_recompile_shaders = true;
+            }
         }
     }
 
-    pub fn clear_effects(sprite: Rc<Mutex<Sprite>>) {
-        let mut sprite = sprite.lock().unwrap();
+    pub fn change_effect(
+        sprite: Option<Rc<Mutex<Sprite>>>,
+        stage: Rc<Mutex<Stage>>,
+        effect: Value,
+        amount: Value,
+    ) {
+        let e = match &*String(&effect).to_lowercase() {
+            "color" => (Effect::Color, Number(&amount)),
+            "fisheye" => (Effect::Fisheye, Number(&amount)),
+            "whirl" => (Effect::Whirl, Number(&amount)),
+            "pixelate" => (Effect::Pixelate, Number(&amount)),
+            "mosaic" => (Effect::Mosaic, Number(&amount)),
+            "brightness" => (Effect::Brightness, Number(&amount)),
+            "ghost" => (Effect::Ghost, Number(&amount)),
+            _ => return,
+        };
 
-        sprite.effects.clear();
+        if let Some(sprite) = sprite {
+            let mut sprite = sprite.lock().unwrap();
 
-        sprite.need_to_recompile_shaders = true;
+            if let Some(x) = sprite.effects.get_mut(&e.0) {
+                *x += e.1;
+            } else {
+                sprite.effects.insert(e.0, e.1);
+                sprite.need_to_recompile_shaders = true;
+            }
+        } else {
+            let mut stage = stage.lock().unwrap();
+
+            if let Some(x) = stage.effects.get_mut(&e.0) {
+                *x += e.1;
+            } else {
+                stage.effects.insert(e.0, e.1);
+                stage.need_to_recompile_shaders = true;
+            }
+        }
+    }
+
+    pub fn clear_effects(sprite: Option<Rc<Mutex<Sprite>>>, stage: Rc<Mutex<Sprite>>) {
+        if let Some(sprite) = sprite {
+            let mut sprite = sprite.lock().unwrap();
+            sprite.effects.clear();
+            sprite.need_to_recompile_shaders = true;
+        } else {
+            let mut stage = stage.lock().unwrap();
+            stage.effects.clear();
+            stage.need_to_recompile_shaders = true;
+        }
     }
 
     /// Join two strings.
@@ -2125,9 +2160,11 @@ impl Sprite {
     fn get_rendered_direction(&self) -> f32 {
         (-self.direction + 90.0).rem_euclid(360.0)
     }
+}
 
-    fn recompile_shaders(&mut self, window: &SDL2Facade) {
-        let mut defines = self
+fn recompile_shaders(stage: Option<&mut Stage>, sprite: Option<&mut Sprite>, window: &SDL2Facade) {
+    if let Some(sprite) = sprite {
+        let mut defines = sprite
             .effects
             .iter()
             .map(|x| x.0.define_string())
@@ -2137,7 +2174,27 @@ impl Sprite {
 
         let define_string = format!("#version 140\n{}", defines.join("\n"));
 
-        for costume in &mut self.costumes {
+        for costume in &mut sprite.costumes {
+            costume.program = glium::Program::from_source(
+                window,
+                &format!("{}\n{}", define_string, Program::get_vertex_shader()),
+                &format!("{}\n{}", define_string, Program::get_fragment_shader()),
+                None,
+            )
+            .unwrap();
+        }
+    } else if let Some(stage) = stage {
+        let mut defines = stage
+            .effects
+            .iter()
+            .map(|x| x.0.define_string())
+            .collect::<Vec<_>>();
+
+        defines.push(String::from("#define DRAW_MODE_default"));
+
+        let define_string = format!("#version 140\n{}", defines.join("\n"));
+
+        for costume in &mut stage.costumes {
             costume.program = glium::Program::from_source(
                 window,
                 &format!("{}\n{}", define_string, Program::get_vertex_shader()),
@@ -2640,7 +2697,7 @@ impl<'a> Program<'a> {
     /// Render the stage, all sprites, and everything else that needs to be
     /// rendered.
     fn render(&mut self, stage: Rc<Mutex<Stage>>) {
-        let stage = stage.lock().unwrap();
+        let mut stage = stage.lock().unwrap();
 
         let mut target = self.window.draw();
 
@@ -2652,7 +2709,12 @@ impl<'a> Program<'a> {
             [0.0, 0.0, 0.0, 1.0f32],
         ];
 
-        stage.costumes[stage.costume].draw(&mut target, transform, &HashMap::new());
+        if stage.need_to_recompile_shaders {
+            recompile_shaders(Some(&mut stage), None, self.window);
+            stage.need_to_recompile_shaders = false;
+        }
+
+        stage.costumes[stage.costume].draw(&mut target, transform, &stage.effects);
 
         for stamp in &stage.stamps {
             let transform = [
@@ -2675,7 +2737,7 @@ impl<'a> Program<'a> {
             let mut sprite = sprite.lock().unwrap();
 
             if sprite.need_to_recompile_shaders {
-                sprite.recompile_shaders(self.window);
+                recompile_shaders(None, Some(&mut sprite), self.window);
                 sprite.need_to_recompile_shaders = false;
             }
 
@@ -3208,6 +3270,8 @@ impl StageBuilder {
             stamps: Vec::new(),
             answer: Value::from(String::new()),
             threads_to_add: VecDeque::new(),
+            effects: HashMap::new(),
+            need_to_recompile_shaders: false,
         }
     }
     pub fn tempo(mut self, tempo: i32) -> Self {
@@ -3284,6 +3348,10 @@ pub struct Stage {
     answer: Value,
 
     threads_to_add: VecDeque<Thread>,
+
+    effects: HashMap<Effect, f32>,
+
+    need_to_recompile_shaders: bool,
 }
 
 impl Stage {
