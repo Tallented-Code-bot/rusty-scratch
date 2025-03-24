@@ -922,10 +922,12 @@ fn create_all_hats(
         let hat = create_hat(block, blocks, block_reference, name.clone());
         match hat {
             Ok((function, start_type, function_name, arguments, custom_block)) => {
-                stacks.push(format!(
+                if !function_name.contains("procedures_definition") {
+                    stacks.push(format!(
                     "v.push(Thread::new(stack_{}(Some(sprite.clone()),stage.clone()),{start_type},Some(sprite.lock().unwrap().uuid)));",
                     function_name
                 ));
+                }
                 match custom_block{
                     false => contents.push_str(format!(
                     // "program.add_thread(Thread{{function:{},obj_index:Some(program.objects.len()),complete:false}});\n",
