@@ -971,7 +971,10 @@ mod blocks {
 
     pub fn letter_of(letter: Value, string: Value) -> Value {
         let mut index: usize = letter.into();
-        index -= 1;
+
+        if let Some(x)=index.checked_sub(1){
+            index = x;
+        }
         let s: String = string.into();
 
         Value::from(match s.chars().nth(index) {
