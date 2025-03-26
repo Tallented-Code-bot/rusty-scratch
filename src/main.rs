@@ -174,6 +174,10 @@ fn make_blocks_lookup() -> HashMap<&'static str, &'static str> {
             stage.lock().unwrap().add_threads(new_threads.into_iter());
 }",
     );
+    blocks.insert(
+        "control_stop",
+        "if stop(sprite.clone(), stage.clone(), thread_uuid, Value::from(STOP_OPTION)) == StopType::ThisScript{return;}",
+    );
     blocks.insert("control_create_clone_of_menu", "Value::from(CLONE_OPTION)");
     blocks.insert("control_start_as_clone", "");
     blocks.insert(
@@ -563,7 +567,7 @@ fn get_block(
         }
 
         function = format!(
-            "stack_procedures_definition_{}(sprite.clone(),stage.clone(){arguments}).await;",
+            "stack_procedures_definition_{}(sprite.clone(),stage.clone(),thread_uuid {arguments}).await;",
             cblock
         );
     } else {
@@ -924,24 +928,26 @@ fn create_all_hats(
             Ok((function, start_type, function_name, arguments, custom_block)) => {
                 if !function_name.contains("procedures_definition") {
                     stacks.push(format!(
-                    "v.push(Thread::new(stack_{}(Some(sprite.clone()),stage.clone()),{start_type},Some(sprite.lock().unwrap().uuid)));",
-                    function_name
+                        "let {function_name}_uuid = Uuid::new_v4();
+                        v.push(Thread::new(stack_{function_name}(Some(sprite.clone()),stage.clone(), {function_name}_uuid),{start_type},{function_name}_uuid,Some(sprite.lock().unwrap().uuid)));
+                        "
                 ));
                 }
                 match custom_block{
                     false => contents.push_str(format!(
                     // "program.add_thread(Thread{{function:{},obj_index:Some(program.objects.len()),complete:false}});\n",
-                    "async fn stack_{function_name}(sprite: Option<Rc<Mutex<Sprite>>>, stage: Rc<Mutex<Stage>> {arguments}){{{function}}}
+                    "async fn stack_{function_name}(sprite: Option<Rc<Mutex<Sprite>>>, stage: Rc<Mutex<Stage>>, thread_uuid: Uuid {arguments}){{{function}}}
                     {{
                         let stage = Stage.lock().unwrap();
+                        let {function_name}_uuid = Uuid::new_v4();
                         program.add_thread(Thread::new(
-                            stack_{function_name}({name_arg},Stage.clone()),{start_type}, {uuid}
+                            stack_{function_name}({name_arg},Stage.clone(), {function_name}_uuid),{start_type}, {function_name}_uuid, {uuid}
                         ));\n
                     }}
 ",
                     // sprite_name = name_arg,
                 ) .as_str()),
-                    true => contents.push_str(format!("async fn stack_{function_name}(sprite:Option<Rc<Mutex<Sprite>>>,stage:Rc<Mutex<Stage>> {arguments}){{{function}}}").as_str())
+                    true => contents.push_str(format!("async fn stack_{function_name}(sprite:Option<Rc<Mutex<Sprite>>>,stage:Rc<Mutex<Stage>>, thread_uuid: Uuid {arguments}){{{function}}}").as_str())
                 }
             }
             Err(x) => match &*x {

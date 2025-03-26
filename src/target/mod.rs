@@ -16,7 +16,7 @@ use glium::{
 };
 use glium_sdl2::DisplayBuild;
 use image::{GenericImageView, ImageBuffer, Rgba};
-use sdl2::{event::WindowEvent, keyboard::Keycode, mouse::MouseButton, pixels::Color};
+use sdl2::{event::WindowEvent, keyboard::Keycode, libc::sleep, mouse::MouseButton, pixels::Color};
 use std::{
     boxed::Box,
     collections::VecDeque,
@@ -52,11 +52,11 @@ const LIST_ITEM_LIMIT: Value = Value::Num(20000.0); // TODO check this
 mod blocks {
     use super::glium_sdl2::SDL2Facade;
     use super::{
-        toNumber, Effect, Number, Stamp, StartType, String, Wait, LIST_ITEM_LIMIT,
-        SCRATCH_HALF_HEIGHT, SCRATCH_HALF_WIDTH,
+        toNumber, Effect, Number, Stamp, StartType, StopType, String, Wait, LIST_ITEM_LIMIT, SCRATCH_HALF_HEIGHT, SCRATCH_HALF_WIDTH
     };
     use super::{Keyboard, Sprite, Stage, Value, Yield};
     use chrono::TimeZone;
+    use uuid::Uuid;
     use core::f32::consts::PI;
     use rand::Rng;
     use std::io;
@@ -962,6 +962,41 @@ mod blocks {
             stage.effects.clear();
             stage.need_to_recompile_shaders = true;
         }
+    }
+
+
+    // TODO may not stop quite at the right time. Doen't matter for now.
+    /// Perform the stop operation: either everything, this script,
+    /// or other scripts in sprite.
+    pub fn stop(sprite: Option<Rc<Mutex<Sprite>>>, stage: Rc<Mutex<Stage>>, thread_uuid: Uuid, option: Value) -> StopType{
+        // - [X] "all"
+        // - [X] "this script"
+        // - [X] "other scripts in sprite"
+
+        if *&option.to_string() == "all"{
+            stage.lock().unwrap().stop_all = StopType::All;
+            return StopType::All;
+        }
+
+        if let Some(x) = sprite{
+            let mut sprite = x.lock().unwrap();
+
+            match &*option.to_string(){
+                "this script" => {sprite.possible_stop = StopType::ThisScript; StopType::ThisScript},
+                "other scripts in sprite" => {sprite.possible_stop = StopType::OtherScriptsInSprite{thread_uuid}; StopType::OtherScriptsInSprite{thread_uuid}},
+                _ => panic!("Disallowed option `{}` for opcode control_stop", option)
+            }
+        } else{
+            let mut stage = stage.lock().unwrap();
+
+            match &*option.to_string(){
+                "this script" => {stage.stop_all = StopType::ThisScript;StopType::ThisScript},
+                "other scripts in sprite" => {stage.stop_all = StopType::OtherScriptsInSprite{thread_uuid}; StopType::OtherScriptsInSprite{thread_uuid}},
+                _ => panic!("Disallowed option `{}` for opcode control_stop", option)
+            }
+
+        }
+
     }
 
     /// Join two strings.
@@ -1995,6 +2030,7 @@ impl SpriteBuilder {
             layer: self.layer,
             effects: HashMap::new(),
             need_to_recompile_shaders: false,
+            possible_stop: StopType::None,
         }
     }
 
@@ -2108,6 +2144,8 @@ pub struct Sprite {
     /// The sprite effects
     effects: HashMap<Effect, f32>,
     need_to_recompile_shaders: bool,
+    /// Whether scripts in this sprite need to stop, and what type
+    possible_stop: StopType,
 }
 
 impl Sprite {
@@ -2153,6 +2191,7 @@ impl Sprite {
             layer: self.layer,
             effects: self.effects.clone(),
             need_to_recompile_shaders: self.need_to_recompile_shaders,
+            possible_stop: StopType::None,
         }
     }
 
@@ -2556,6 +2595,7 @@ struct Thread {
     /// When the thread should start
     start: StartType,
 
+    thread_uuid: Uuid,
     sprite_uuid: Option<Uuid>,
 }
 
@@ -2574,14 +2614,16 @@ impl Thread {
     fn new(
         future: impl Future<Output = ()> + 'static, /*, obj_index: Option<usize>*/
         start: StartType,
-        uuid: Option<Uuid>,
+        thread_uuid: Uuid,
+        sprite_uuid: Option<Uuid>,
     ) -> Thread {
         Thread {
             function: Box::pin(future),
             complete: false,
             running: false,
             start, // obj_index,
-            sprite_uuid: uuid,
+            thread_uuid,
+            sprite_uuid,
         }
     }
 
@@ -2603,6 +2645,15 @@ impl<'a> Program<'a> {
     /// Run 1 tick
     fn tick(&mut self, stage: Rc<Mutex<Stage>>) {
         self.add_threads_from_stage(stage.clone());
+
+
+
+
+
+        // stop all threads if stop all is called
+
+        self.stop_if_needed(stage.clone());
+
 
         // for (i, thread) in &mut self.threads.iter_mut().enumerate() {
         //     let returned = match thread.obj_index {
@@ -2652,7 +2703,54 @@ impl<'a> Program<'a> {
             }
         }
         self.threads.retain(|x| !x.complete);
-        self.delete_sprites(stage);
+        self.delete_sprites_if_needed(stage);
+    }
+
+
+    /// Stop any scripts that need to be stopped because a stop block has been
+    /// run.
+    fn stop_if_needed(&mut self, stage: Rc<Mutex<Stage>>){
+        let mut stage = stage.lock().unwrap();
+
+
+        // Possible scenarios:
+        // 1 `stop all` on stage
+        // 2 `stop this script` on sprite - handled elsewhere
+        // 3 `stop everything but this script` on sprite
+        // 4 `stop this script` on stage - handled elsewhere
+        // 5 `stop everything but this script` on stage
+
+
+        // helper function to stop a thread
+        fn stop_thread(x: &mut Thread){x.complete = true;}
+
+
+
+        // Scenario 1: `stop all` on stage
+        if stage.stop_all == StopType::All{
+            self.threads.iter_mut().for_each(stop_thread);
+        }
+
+        // Scenario 5: `stop other scripts in sprite` on stage
+        if let StopType::OtherScriptsInSprite { thread_uuid } = stage.stop_all{
+            self.threads.iter_mut()
+                        .filter(|x| x.sprite_uuid.is_none())
+                        .filter(|x| x.thread_uuid != thread_uuid)
+                        .for_each(stop_thread);
+        }
+
+        // Scenario 3: `stop other scripts in sprite` on sprite
+        for sprite in &mut stage.sprites{
+            let sprite = sprite.lock().unwrap();
+
+            if let StopType::OtherScriptsInSprite { thread_uuid } = sprite.possible_stop{
+                self.threads.iter_mut()
+                    .filter(|x| x.sprite_uuid == Some(sprite.uuid))
+                    .filter(|x| x.thread_uuid != thread_uuid)
+                    .for_each(stop_thread);
+            }
+        }
+
     }
 
     fn new(window: &'a SDL2Facade) -> Self {
@@ -2682,7 +2780,7 @@ impl<'a> Program<'a> {
 
     /// Check all sprites and see if they need to be deleted; if they do, delete
     /// them.
-    fn delete_sprites(&mut self, stage: Rc<Mutex<Stage>>) {
+    fn delete_sprites_if_needed(&mut self, stage: Rc<Mutex<Stage>>) {
         let mut stage = stage.lock().unwrap();
 
         stage.sprites.retain(|sprite| {
@@ -3275,6 +3373,7 @@ impl StageBuilder {
             threads_to_add: VecDeque::new(),
             effects: HashMap::new(),
             need_to_recompile_shaders: false,
+            stop_all: StopType::None,
         }
     }
     pub fn tempo(mut self, tempo: i32) -> Self {
@@ -3355,6 +3454,7 @@ pub struct Stage {
     effects: HashMap<Effect, f32>,
 
     need_to_recompile_shaders: bool,
+    stop_all: StopType,
 }
 
 impl Stage {
@@ -3691,4 +3791,14 @@ struct Stamp {
     size: f32,
     costume: usize,
     sprite: Rc<Mutex<Sprite>>,
+}
+
+
+/// A simple enum to encode the different way to stop scripts
+#[derive(Debug,Copy,Clone, Eq, PartialEq)]
+enum StopType{
+    None,
+    All,
+    ThisScript,
+    OtherScriptsInSprite{thread_uuid: Uuid}
 }
